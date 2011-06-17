@@ -337,10 +337,8 @@ void export_pose(FILE *out, struct aiMatrix4x4 m, int i, int frame)
 	if (aiDeterminant(m) < 0) {
 		aiMultiplyMatrix4(&m, &reflect);
 		fprintf(stderr, "correcting mirror transformation in pose %d: %s\n", frame, bonelist[i].name);
-		//aiDecomposeMatrix(&m, &scale, &rot, &pos);
-		//rot.z = -rot.z; rot.w = -rot.w;
-		//m = aiQuaternion_GetMatrix(rot);
-		//m.a4 = pos.x; m.b4 = pos.y; m.c4 = pos.z;
+		// compensate for reflection in rotation?
+		// ... or rebuild bone from vector, and force angle to be up
 	}
 
 	// Double test that the quat conversion is okay (call it paranoia)
@@ -350,10 +348,6 @@ void export_pose(FILE *out, struct aiMatrix4x4 m, int i, int frame)
 		fprintf(stderr, "strange matrix in pose %d: %s (quat mag=%g)\n", frame, bonelist[i].name, mag);
 		print_matrix("strange matrix", m);
 		aiMultiplyMatrix4(&m, &reflect);
-		//aiDecomposeMatrix(&m, &scale, &rot, &pos);
-		//rot.z = -rot.z; rot.w = -rot.w;
-		//m = aiQuaternion_GetMatrix(rot);
-		//m.a4 = pos.x; m.b4 = pos.y; m.c4 = pos.z;
 	}
 
 #if 1
@@ -706,6 +700,7 @@ void usage()
 	fprintf(stderr, "usage: assiqe [options] [-o out.iqe] input.dae [tags ...]\n");
 	fprintf(stderr, "\t-a -- only export animations\n");
 	fprintf(stderr, "\t-b -- export unused bones too\n");
+	fprintf(stderr, "\t-m -- force bind pose to first animation\n");
 	fprintf(stderr, "\t-o filename -- save output to file\n");
 	exit(1);
 }
@@ -741,10 +736,11 @@ int main(int argc, char **argv)
 	char *input = NULL;
 	int domesh = 1;
 
-	while ((c = getopt(argc, argv, "abo:")) != -1) {
+	while ((c = getopt(argc, argv, "abmo:")) != -1) {
 		switch (c) {
 		case 'a': domesh = 0; break;
 		case 'b': save_all_bones = 1; break;
+		case 'm': need_to_bake_skin = 1; break;
 		case 'o': output = optarg++; break;
 		default: usage(); break;
 		}
@@ -801,8 +797,16 @@ int main(int argc, char **argv)
 		bake_scene_skin(scene);
 	}
 
-	// if (domesh && dobone) export_bone_list(file); // XXX (only for ca_hof megabatch)
-	if (dobone) export_bone_list(file); // XXX (only for ca_hof megabatch)
+	// Nuke all non-bone transforms.
+	// Should take care of icky mesh transforms that mess up our bind pose
+	// since mOffsetMatrix is in local mesh space, not global model space.
+	if (dobone) {
+		for (k = 0; k < numbones; k++)
+			if (!bonelist[k].isbone)
+				aiIdentityMatrix4(&bonelist[k].node->mTransformation);
+	}
+
+	if (dobone) export_bone_list(file);
 	if (domesh) export_node(file, scene, scene->mRootNode, mat, "unnamed");
 	if (doanim) export_animations(file, scene);
 	else if (!domesh) { // oops, forced anim but only one frame
