@@ -13,79 +13,71 @@
 #include <aiPostProcess.h>
 #include <aiScene.h>
 
-#define MATRIX_KEY	// have mMatrixValue hacked into rotation key?
-#define noMATRIX_POSE	// save in 'pm' matrix format
-#define noFLIP		// export flipped (quake-style) triangles and normals
-
 #include "getopt.h"
 
-float aiDeterminant(struct aiMatrix4x4 m)
+#define EPSILON 0.00001
+#define NEAR_0(x) (fabs((x)) < EPSILON)
+#define NEAR_1(x) (NEAR_0((x)-1))
+#define KILL_0(x) (NEAR_0((x)) ? 0 : (x))
+#define KILL_N(x,n) (NEAR_0((x)-(n)) ? (n) : (x))
+#define KILL(x) KILL_0(KILL_N(KILL_N(x, 1), -1))
+
+float aiDeterminant(struct aiMatrix4x4 *m)
 {
-	return m.a1*m.b2*m.c3*m.d4 - m.a1*m.b2*m.c4*m.d3 + m.a1*m.b3*m.c4*m.d2 - m.a1*m.b3*m.c2*m.d4 
-		+ m.a1*m.b4*m.c2*m.d3 - m.a1*m.b4*m.c3*m.d2 - m.a2*m.b3*m.c4*m.d1 + m.a2*m.b3*m.c1*m.d4 
-		- m.a2*m.b4*m.c1*m.d3 + m.a2*m.b4*m.c3*m.d1 - m.a2*m.b1*m.c3*m.d4 + m.a2*m.b1*m.c4*m.d3 
-		+ m.a3*m.b4*m.c1*m.d2 - m.a3*m.b4*m.c2*m.d1 + m.a3*m.b1*m.c2*m.d4 - m.a3*m.b1*m.c4*m.d2 
-		+ m.a3*m.b2*m.c4*m.d1 - m.a3*m.b2*m.c1*m.d4 - m.a4*m.b1*m.c2*m.d3 + m.a4*m.b1*m.c3*m.d2
-		- m.a4*m.b2*m.c3*m.d1 + m.a4*m.b2*m.c1*m.d3 - m.a4*m.b3*m.c1*m.d2 + m.a4*m.b3*m.c2*m.d1;
+	return
+		m->a1*m->b2*m->c3*m->d4 - m->a1*m->b2*m->c4*m->d3 +
+		m->a1*m->b3*m->c4*m->d2 - m->a1*m->b3*m->c2*m->d4 +
+		m->a1*m->b4*m->c2*m->d3 - m->a1*m->b4*m->c3*m->d2 -
+		m->a2*m->b3*m->c4*m->d1 + m->a2*m->b3*m->c1*m->d4 -
+		m->a2*m->b4*m->c1*m->d3 + m->a2*m->b4*m->c3*m->d1 -
+		m->a2*m->b1*m->c3*m->d4 + m->a2*m->b1*m->c4*m->d3 +
+		m->a3*m->b4*m->c1*m->d2 - m->a3*m->b4*m->c2*m->d1 +
+		m->a3*m->b1*m->c2*m->d4 - m->a3*m->b1*m->c4*m->d2 +
+		m->a3*m->b2*m->c4*m->d1 - m->a3*m->b2*m->c1*m->d4 -
+		m->a4*m->b1*m->c2*m->d3 + m->a4*m->b1*m->c3*m->d2 -
+		m->a4*m->b2*m->c3*m->d1 + m->a4*m->b2*m->c1*m->d3 -
+		m->a4*m->b3*m->c1*m->d2 + m->a4*m->b3*m->c2*m->d1;
 }
 
-void print_matrix(struct aiMatrix4x4 m)
-{
-	printf("mat3 %g %g %g %g %g %g %g %g %g; %g\n",
-			m.a1, m.a2, m.a3,
-			m.b1, m.b2, m.b3,
-			m.c1, m.c2, m.c3,
-			aiDeterminant(m));
-}
-
-struct aiMatrix4x4 aiInverseMatrix(struct aiMatrix4x4 m)
+void aiInverseMatrix(struct aiMatrix4x4 *p, struct aiMatrix4x4 *m)
 {
 	float det = aiDeterminant(m);
 	assert(det != 0.0f);
 	float invdet = 1.0f / det;
-	struct aiMatrix4x4 res;
-	res.a1= invdet*(m.b2*(m.c3*m.d4-m.c4*m.d3)+m.b3*(m.c4*m.d2-m.c2*m.d4)+m.b4*(m.c2*m.d3-m.c3*m.d2));
-	res.a2=-invdet*(m.a2*(m.c3*m.d4-m.c4*m.d3)+m.a3*(m.c4*m.d2-m.c2*m.d4)+m.a4*(m.c2*m.d3-m.c3*m.d2));
-	res.a3= invdet*(m.a2*(m.b3*m.d4-m.b4*m.d3)+m.a3*(m.b4*m.d2-m.b2*m.d4)+m.a4*(m.b2*m.d3-m.b3*m.d2));
-	res.a4=-invdet*(m.a2*(m.b3*m.c4-m.b4*m.c3)+m.a3*(m.b4*m.c2-m.b2*m.c4)+m.a4*(m.b2*m.c3-m.b3*m.c2));
-	res.b1=-invdet*(m.b1*(m.c3*m.d4-m.c4*m.d3)+m.b3*(m.c4*m.d1-m.c1*m.d4)+m.b4*(m.c1*m.d3-m.c3*m.d1));
-	res.b2= invdet*(m.a1*(m.c3*m.d4-m.c4*m.d3)+m.a3*(m.c4*m.d1-m.c1*m.d4)+m.a4*(m.c1*m.d3-m.c3*m.d1));
-	res.b3=-invdet*(m.a1*(m.b3*m.d4-m.b4*m.d3)+m.a3*(m.b4*m.d1-m.b1*m.d4)+m.a4*(m.b1*m.d3-m.b3*m.d1));
-	res.b4= invdet*(m.a1*(m.b3*m.c4-m.b4*m.c3)+m.a3*(m.b4*m.c1-m.b1*m.c4)+m.a4*(m.b1*m.c3-m.b3*m.c1));
-	res.c1= invdet*(m.b1*(m.c2*m.d4-m.c4*m.d2)+m.b2*(m.c4*m.d1-m.c1*m.d4)+m.b4*(m.c1*m.d2-m.c2*m.d1));
-	res.c2=-invdet*(m.a1*(m.c2*m.d4-m.c4*m.d2)+m.a2*(m.c4*m.d1-m.c1*m.d4)+m.a4*(m.c1*m.d2-m.c2*m.d1));
-	res.c3= invdet*(m.a1*(m.b2*m.d4-m.b4*m.d2)+m.a2*(m.b4*m.d1-m.b1*m.d4)+m.a4*(m.b1*m.d2-m.b2*m.d1));
-	res.c4=-invdet*(m.a1*(m.b2*m.c4-m.b4*m.c2)+m.a2*(m.b4*m.c1-m.b1*m.c4)+m.a4*(m.b1*m.c2-m.b2*m.c1));
-	res.d1=-invdet*(m.b1*(m.c2*m.d3-m.c3*m.d2)+m.b2*(m.c3*m.d1-m.c1*m.d3)+m.b3*(m.c1*m.d2-m.c2*m.d1));
-	res.d2= invdet*(m.a1*(m.c2*m.d3-m.c3*m.d2)+m.a2*(m.c3*m.d1-m.c1*m.d3)+m.a3*(m.c1*m.d2-m.c2*m.d1));
-	res.d3=-invdet*(m.a1*(m.b2*m.d3-m.b3*m.d2)+m.a2*(m.b3*m.d1-m.b1*m.d3)+m.a3*(m.b1*m.d2-m.b2*m.d1));
-	res.d4= invdet*(m.a1*(m.b2*m.c3-m.b3*m.c2)+m.a2*(m.b3*m.c1-m.b1*m.c3)+m.a3*(m.b1*m.c2-m.b2*m.c1));
-	return res;
+	p->a1= invdet * (m->b2*(m->c3*m->d4-m->c4*m->d3) + m->b3*(m->c4*m->d2-m->c2*m->d4) + m->b4*(m->c2*m->d3-m->c3*m->d2));
+	p->a2=-invdet * (m->a2*(m->c3*m->d4-m->c4*m->d3) + m->a3*(m->c4*m->d2-m->c2*m->d4) + m->a4*(m->c2*m->d3-m->c3*m->d2));
+	p->a3= invdet * (m->a2*(m->b3*m->d4-m->b4*m->d3) + m->a3*(m->b4*m->d2-m->b2*m->d4) + m->a4*(m->b2*m->d3-m->b3*m->d2));
+	p->a4=-invdet * (m->a2*(m->b3*m->c4-m->b4*m->c3) + m->a3*(m->b4*m->c2-m->b2*m->c4) + m->a4*(m->b2*m->c3-m->b3*m->c2));
+	p->b1=-invdet * (m->b1*(m->c3*m->d4-m->c4*m->d3) + m->b3*(m->c4*m->d1-m->c1*m->d4) + m->b4*(m->c1*m->d3-m->c3*m->d1));
+	p->b2= invdet * (m->a1*(m->c3*m->d4-m->c4*m->d3) + m->a3*(m->c4*m->d1-m->c1*m->d4) + m->a4*(m->c1*m->d3-m->c3*m->d1));
+	p->b3=-invdet * (m->a1*(m->b3*m->d4-m->b4*m->d3) + m->a3*(m->b4*m->d1-m->b1*m->d4) + m->a4*(m->b1*m->d3-m->b3*m->d1));
+	p->b4= invdet * (m->a1*(m->b3*m->c4-m->b4*m->c3) + m->a3*(m->b4*m->c1-m->b1*m->c4) + m->a4*(m->b1*m->c3-m->b3*m->c1));
+	p->c1= invdet * (m->b1*(m->c2*m->d4-m->c4*m->d2) + m->b2*(m->c4*m->d1-m->c1*m->d4) + m->b4*(m->c1*m->d2-m->c2*m->d1));
+	p->c2=-invdet * (m->a1*(m->c2*m->d4-m->c4*m->d2) + m->a2*(m->c4*m->d1-m->c1*m->d4) + m->a4*(m->c1*m->d2-m->c2*m->d1));
+	p->c3= invdet * (m->a1*(m->b2*m->d4-m->b4*m->d2) + m->a2*(m->b4*m->d1-m->b1*m->d4) + m->a4*(m->b1*m->d2-m->b2*m->d1));
+	p->c4=-invdet * (m->a1*(m->b2*m->c4-m->b4*m->c2) + m->a2*(m->b4*m->c1-m->b1*m->c4) + m->a4*(m->b1*m->c2-m->b2*m->c1));
+	p->d1=-invdet * (m->b1*(m->c2*m->d3-m->c3*m->d2) + m->b2*(m->c3*m->d1-m->c1*m->d3) + m->b3*(m->c1*m->d2-m->c2*m->d1));
+	p->d2= invdet * (m->a1*(m->c2*m->d3-m->c3*m->d2) + m->a2*(m->c3*m->d1-m->c1*m->d3) + m->a3*(m->c1*m->d2-m->c2*m->d1));
+	p->d3=-invdet * (m->a1*(m->b2*m->d3-m->b3*m->d2) + m->a2*(m->b3*m->d1-m->b1*m->d3) + m->a3*(m->b1*m->d2-m->b2*m->d1));
+	p->d4= invdet * (m->a1*(m->b2*m->c3-m->b3*m->c2) + m->a2*(m->b3*m->c1-m->b1*m->c3) + m->a3*(m->b1*m->c2-m->b2*m->c1));
 }
 
-struct aiMatrix4x4 aiComposeMatrix(struct aiVector3D scale, struct aiQuaternion q, struct aiVector3D pos)
+void print_matrix(struct aiMatrix4x4 *m)
 {
-	struct aiMatrix4x4 m;
+	fprintf(stderr, "matrix %g %g %g %g %g %g %g %g %g (det=%g)\n",
+			m->a1, m->a2, m->a3,
+			m->b1, m->b2, m->b3,
+			m->c1, m->c2, m->c3,
+			aiDeterminant(m));
+}
 
-	m.a1 = 1.0f - 2.0f * (q.y * q.y + q.z * q.z);
-	m.a2 = 2.0f * (q.x * q.y - q.z * q.w);
-	m.a3 = 2.0f * (q.x * q.z + q.y * q.w);
-	m.b1 = 2.0f * (q.x * q.y + q.z * q.w);
-	m.b2 = 1.0f - 2.0f * (q.x * q.x + q.z * q.z);
-	m.b3 = 2.0f * (q.y * q.z - q.x * q.w);
-	m.c1 = 2.0f * (q.x * q.z - q.y * q.w);
-	m.c2 = 2.0f * (q.y * q.z + q.x * q.w);
-	m.c3 = 1.0f - 2.0f * (q.x * q.x + q.y * q.y);
-
-	m.a1 *= scale.x; m.a2 *= scale.x; m.a3 *= scale.x;
-	m.b1 *= scale.y; m.b2 *= scale.y; m.b3 *= scale.y;
-	m.c1 *= scale.z; m.c2 *= scale.z; m.c3 *= scale.z;
-
-	m.a4 = pos.x; m.b4 = pos.y; m.c4 = pos.z;
-
-	m.d1 = 0; m.d2 = 0; m.d3 = 0; m.d4 = 1;
-
-	return m;
+int is_identity_matrix(struct aiMatrix4x4 *m)
+{
+	return
+		NEAR_1(m->a1) && NEAR_0(m->a2) && NEAR_0(m->a3) &&
+		NEAR_0(m->b1) && NEAR_1(m->b2) && NEAR_0(m->b3) &&
+		NEAR_0(m->c1) && NEAR_0(m->c2) && NEAR_1(m->c3) &&
+		NEAR_0(m->a4) && NEAR_0(m->b4) && NEAR_0(m->c4);
 }
 
 char basename[1024];
@@ -120,12 +112,19 @@ struct bone {
 	struct aiMatrix4x4 invpose; // inv(parent * pose)
 	struct aiMatrix4x4 abspose; // (parent * pose)
 	struct aiMatrix4x4 pose;
+
+	// current pose in decomposed form
+	struct aiVector3D translate;
+	struct aiQuaternion rotate;
+	struct aiVector3D scale;
 };
 
 int need_to_bake_skin = 0;
 int save_all_bones = 0;
-int doanim = 0;
-int dobone = 0;
+
+int doanim = 0;	// export animations
+int dobone = 0;	// export skeleton
+int doflip = 0;	// export flipped (quake-style) triangles and normals
 
 struct bone bonelist[1000];
 int numbones = 0;
@@ -150,7 +149,7 @@ char *get_base_name(char *s)
 char *node_name(char *orig)
 {
 	static char buf[200];
-	if (orig == buf) return orig; // no need to clean the same name twice ;)
+	if (orig == buf) return orig; // no need to clean the same name twice (hack!)
 	char *p = orig;
 	if (strstr(orig, "node-") == orig)
 		orig += 5;
@@ -267,7 +266,7 @@ void build_bone_list(const struct aiScene *scene)
 	// compute forward abspose and pose matrices here
 	for (i = 0; i < numbones; i++) {
 		if (bonelist[i].isbone) {
-			bonelist[i].abspose = aiInverseMatrix(bonelist[i].invpose);
+			aiInverseMatrix(&bonelist[i].abspose, &bonelist[i].invpose);
 			bonelist[i].pose = bonelist[i].abspose;
 			if (bonelist[i].parent >= 0) {
 				struct aiMatrix4x4 m = bonelist[bonelist[i].parent].invpose;
@@ -283,7 +282,7 @@ void build_bone_list(const struct aiScene *scene)
 				bonelist[i].abspose = bonelist[bonelist[i].parent].abspose;
 				aiMultiplyMatrix4(&bonelist[i].abspose, &bonelist[i].pose);
 			}
-			bonelist[i].invpose = aiInverseMatrix(bonelist[i].abspose);
+			aiInverseMatrix(&bonelist[i].invpose, &bonelist[i].abspose);
 		}
 	}
 
@@ -314,8 +313,13 @@ void build_bone_list(const struct aiScene *scene)
 		}
 	}
 
-	// skip 'MaxScene' node
-	if (!strcmp(bonelist[0].name, "MaxScene")) {
+	// skip root node if it has 1 child and identity transform
+	int count = 0;
+	for (i = 0; i < numbones; i++)
+		if (bonelist[i].isbone && bonelist[i].parent == 0)
+			count++;
+	if (count == 1 && is_identity_matrix(&bonelist[0].node->mTransformation)) {
+		fprintf(stderr, "skipping root node with one child and identity transform\n");
 		bonelist[0].isbone = 0;
 		bonelist[0].number = -1;
 	}
@@ -330,40 +334,32 @@ void build_bone_list(const struct aiScene *scene)
 			bonelist[i].number = number++;
 }
 
-// --- armature hierarchy and bind pose ---
+// --- export poses and animation frames ---
 
-void export_pose(FILE *out, struct aiMatrix4x4 m, int i, int frame)
+void export_pm(FILE *out, struct aiMatrix4x4 *m)
 {
-#ifdef MATRIX_POSE
 	fprintf(out, "pm %g %g %g %g %g %g %g %g %g %g %g %g\n",
-			m.a4, m.b4, m.c4,
-			m.a1, m.a2, m.a3,
-			m.b1, m.b2, m.b3,
-			m.c1, m.c2, m.c3);
-#else
-	struct aiQuaternion rot;
-	struct aiVector3D pos, scale;
+			KILL(m->a4), KILL(m->b4), KILL(m->c4),
+			KILL(m->a1), KILL(m->a2), KILL(m->a3),
+			KILL(m->b1), KILL(m->b2), KILL(m->b3),
+			KILL(m->c1), KILL(m->c2), KILL(m->c3));
+}
 
-	aiDecomposeMatrix(&m, &scale, &rot, &pos);
+void export_pose(FILE *out, int i)
+{
+	struct aiQuaternion rotate = bonelist[i].rotate;
+	struct aiVector3D scale = bonelist[i].scale;
+	struct aiVector3D translate = bonelist[i].translate;
 
-	// truncate near-one scale values
-	if (fabs(scale.x-1) < 0.001) scale.x = 1;
-	if (fabs(scale.y-1) < 0.001) scale.y = 1;
-	if (fabs(scale.z-1) < 0.001) scale.z = 1;
-	if (fabs(scale.x+1) < 0.001) scale.x = -1;
-	if (fabs(scale.y+1) < 0.001) scale.y = -1;
-	if (fabs(scale.z+1) < 0.001) scale.z = -1;
-
-	if (scale.x != 1 || scale.y != 1 || scale.z != 1)
-		fprintf(out, "pq %f %f %f %f %f %f %f %g %g %g\n",
-			pos.x, pos.y, pos.z,
-			rot.x, rot.y, rot.z, rot.w,
-			scale.x, scale.y, scale.z);
+	if (NEAR_1(scale.x) && NEAR_1(scale.y) && NEAR_1(scale.z))
+		fprintf(out, "pq %g %g %g %g %g %g %g\n",
+			KILL(translate.x), KILL(translate.y), KILL(translate.z),
+			KILL(rotate.x), KILL(rotate.y), KILL(rotate.z), KILL(rotate.w));
 	else
-		fprintf(out, "pq %f %f %f %f %f %f %f\n",
-			pos.x, pos.y, pos.z,
-			rot.x, rot.y, rot.z, rot.w);
-#endif
+		fprintf(out, "pq %g %g %g %g %g %g %g %g %g %g\n",
+			KILL(translate.x), KILL(translate.y), KILL(translate.z),
+			KILL(rotate.x), KILL(rotate.y), KILL(rotate.z), KILL(rotate.w),
+			KILL(scale.x), KILL(scale.y), KILL(scale.z));
 }
 
 void export_bone_list(FILE *out)
@@ -383,24 +379,12 @@ void export_bone_list(FILE *out)
 	}
 
 	fprintf(out, "\n");
-	for (i = 0; i < numbones; i++)
-		if (bonelist[i].isbone)
-			export_pose(out, bonelist[i].pose, i, -1);
-}
-
-void export_frame(FILE *out, int frame)
-{
-	int i;
-	fprintf(out, "\n");
-	fprintf(out, "frame\n");
 	for (i = 0; i < numbones; i++) {
-		bonelist[i].abspose = bonelist[i].pose;
-		if (bonelist[i].parent >= 0) {
-			bonelist[i].abspose = bonelist[bonelist[i].parent].abspose;
-			aiMultiplyMatrix4(&bonelist[i].abspose, &bonelist[i].pose);
+		if (bonelist[i].isbone) {
+			aiDecomposeMatrix(&bonelist[i].pose, &bonelist[i].scale, &bonelist[i].rotate, &bonelist[i].translate);
+			// export_pose(out, i);
+			export_pm(out, &bonelist[i].pose);
 		}
-		if (bonelist[i].isbone)
-			export_pose(out, bonelist[i].pose, i, frame);
 	}
 }
 
@@ -409,52 +393,68 @@ void apply_initial_frame(void)
 	int i;
 	for (i = 0; i < numbones; i++) {
 		bonelist[i].pose = bonelist[i].node->mTransformation;
+		aiDecomposeMatrix(&bonelist[i].pose, &bonelist[i].scale, &bonelist[i].rotate, &bonelist[i].translate);
 	}
 }
 
-void apply_frame(const struct aiAnimation *anim, int frame, int len)
+void export_frame(FILE *out, const struct aiAnimation *anim, int frame)
 {
-	int i, a;
+	int i;
 	for (i = 0; i < anim->mNumChannels; i++) {
 		struct aiNodeAnim *chan = anim->mChannels[i];
-		int rotframe = MIN(frame, chan->mNumRotationKeys - 1);
-#ifdef MATRIX_KEY
-		// requires modified assimp
-		struct aiMatrix4x4 m = chan->mRotationKeys[rotframe].mMatrixValue;
-		m.d4 = 1; // assimp stores the 'time' value here!!!
-#else
-		int posframe = MIN(frame, chan->mNumPositionKeys - 1);
-		int scaleframe = MIN(frame, chan->mNumScalingKeys - 1);
-		struct aiVector3D pos = chan->mPositionKeys[posframe].mValue;
- 		struct aiQuaternion rot = chan->mRotationKeys[rotframe].mValue;
- 		struct aiVector3D scale = chan->mScalingKeys[scaleframe].mValue;
-		struct aiMatrix4x4 m = aiComposeMatrix(scale, rot, pos);
-#endif
-		a = find_bone(chan->mNodeName.data);
-		bonelist[a].pose = m;
+		int a = find_bone(chan->mNodeName.data);
+		int tframe = MIN(frame, chan->mNumPositionKeys - 1);
+		int rframe = MIN(frame, chan->mNumRotationKeys - 1);
+		int sframe = MIN(frame, chan->mNumScalingKeys - 1);
+		bonelist[a].translate = chan->mPositionKeys[tframe].mValue;
+ 		bonelist[a].rotate = chan->mRotationKeys[rframe].mValue;
+ 		bonelist[a].scale = chan->mScalingKeys[sframe].mValue;
 	}
+
+	fprintf(out, "\n");
+	fprintf(out, "frame\n");
+	for (i = 0; i < numbones; i++) {
+		if (bonelist[i].isbone)
+			export_pose(out, i);
+	}
+}
+
+int animation_length(const struct aiAnimation *anim)
+{
+	int i, len = 0;
+	for (i = 0; i < anim->mNumChannels; i++) {
+		struct aiNodeAnim *chan = anim->mChannels[i];
+		if (chan->mNumPositionKeys > len) len = chan->mNumPositionKeys;
+		if (chan->mNumRotationKeys > len) len = chan->mNumRotationKeys;
+		if (chan->mNumScalingKeys > len) len = chan->mNumScalingKeys;
+	}
+	return len;
 }
 
 void export_animations(FILE *out, const struct aiScene *scene)
 {
-	int i, a, len;
+	int i, k, len;
 	for (i = 0; i < scene->mNumAnimations; i++) {
 		const struct aiAnimation *anim = scene->mAnimations[i];
-		assert(anim->mChannels[0]->mNumPositionKeys == anim->mChannels[0]->mNumRotationKeys);
-		assert(anim->mChannels[0]->mNumPositionKeys == anim->mChannels[0]->mNumScalingKeys);
 		if (scene->mNumAnimations > 1)
 			fprintf(out, "\nanimation %s,%02d\n", basename, i);
 		else
 			fprintf(out, "\nanimation %s\n", basename);
 		fprintf(out, "framerate 30\n");
-		len = anim->mChannels[0]->mNumPositionKeys;
+		len = animation_length(anim);
 		apply_initial_frame();
-		for (a = 0; a < len; a++) {
-			apply_frame(anim, a, len);
-			export_frame(out, a);
-		}
+		for (k = 0; k < len; k++)
+			export_frame(out, anim, k);
 	}
 }
+
+/*
+ * For multi-mesh models, sometimes each mesh has its own inv_bind_matrix set
+ * for each bone. To export to IQE we must have only one inv_bind_matrix per
+ * bone. We can bake the mesh by animating it to the first animation frame.
+ * Once this is done, set the inv_bind_matrix to be the inverse of the forward
+ * bind_matrix of this pose.
+ */
 
 void bake_mesh_skin(const struct aiMesh *mesh)
 {
@@ -524,6 +524,18 @@ void bake_scene_skin(const struct aiScene *scene)
 		bake_mesh_skin(scene->mMeshes[i]);
 }
 
+/*
+ * Export meshes. Group them by materials. Also apply the node transform
+ * to the vertices. IQE does not have a concept of per-group transforms.
+ *
+ * If we are exporting a rigged model, we have to skip any meshes which
+ * are not deformed by the armature. If we are exporting a non-rigged model,
+ * we have to pre-transform all meshes.
+ *
+ * TODO: turn non-rigged meshes into rigged meshes by hooking them up to
+ * a synthesized bone for its node.
+ */
+
 void export_node(FILE *out, const struct aiScene *scene, const struct aiNode *node,
 	struct aiMatrix4x4 mat, char *nodename)
 {
@@ -545,6 +557,8 @@ void export_node(FILE *out, const struct aiScene *scene, const struct aiNode *no
 		struct aiMaterial *material = scene->mMaterials[mesh->mMaterialIndex];
 
 		/* skip non-boned meshes if we have a skeleton */
+		// TODO: we could fake bones here by adding a bone for this node
+		// and hard coding the blend index and weight for it.
 		if (mesh->mNumBones == 0 && dobone) {
 			fprintf(stderr, "skipping mesh %d in node %s (no bones)\n", i, nodename);
 			continue;
@@ -581,7 +595,8 @@ void export_node(FILE *out, const struct aiScene *scene, const struct aiNode *no
 
 		for (k = 0; k < mesh->mNumVertices; k++) {
 			struct aiVector3D vp = mesh->mVertices[k];
-			aiTransformVecByMatrix4(&vp, &mat);
+			if (!dobone)
+				aiTransformVecByMatrix4(&vp, &mat);
 			fprintf(out, "vp %g %g %g\n", vp.x, vp.y, vp.z);
 			if (mesh->mTextureCoords[0]) {
 				float u = mesh->mTextureCoords[0][k].x;
@@ -590,12 +605,12 @@ void export_node(FILE *out, const struct aiScene *scene, const struct aiNode *no
 			} else fprintf(out, "vt 0 0\n");
 			if (mesh->mNormals) {
 				struct aiVector3D vn = mesh->mNormals[k];
-				aiTransformVecByMatrix3(&vn, &mat3);
-#ifdef FLIP
-				fprintf(out, "vn %g %g %g\n", -vn.x, -vn.y, -vn.z);
-#else
-				fprintf(out, "vn %g %g %g\n", vn.x, vn.y, vn.z);
-#endif
+				if (!dobone)
+					aiTransformVecByMatrix3(&vn, &mat3);
+				if (doflip)
+						fprintf(out, "vn %g %g %g\n", -vn.x, -vn.y, -vn.z);
+				else
+						fprintf(out, "vn %g %g %g\n", vn.x, vn.y, vn.z);
 			}
 			if (mesh->mColors[0]) {
 				float r = mesh->mColors[0][k].r; r = floorf(r * 255) / 255;
@@ -615,11 +630,10 @@ void export_node(FILE *out, const struct aiScene *scene, const struct aiNode *no
 		for (k = 0; k < mesh->mNumFaces; k++) {
 			struct aiFace *face = mesh->mFaces + k;
 			assert(face->mNumIndices == 3);
-#ifdef FLIP
-			fprintf(out, "fm %d %d %d\n", face->mIndices[0], face->mIndices[2], face->mIndices[1]);
-#else
-			fprintf(out, "fm %d %d %d\n", face->mIndices[0], face->mIndices[1], face->mIndices[2]);
-#endif
+			if (doflip)
+					fprintf(out, "fm %d %d %d\n", face->mIndices[0], face->mIndices[2], face->mIndices[1]);
+			else
+					fprintf(out, "fm %d %d %d\n", face->mIndices[0], face->mIndices[1], face->mIndices[2]);
 		}
 
 		free(vb);
@@ -634,7 +648,8 @@ void usage()
 	fprintf(stderr, "usage: assiqe [options] [-o out.iqe] input.dae [tags ...]\n");
 	fprintf(stderr, "\t-a -- only export animations\n");
 	fprintf(stderr, "\t-b -- export unused bones too\n");
-	fprintf(stderr, "\t-m -- bake bind pose mesh to first animation frame\n");
+	fprintf(stderr, "\t-m -- bake mesh to bind pose / first frame\n");
+	fprintf(stderr, "\t-f -- flip normals and winding order\n");
 	fprintf(stderr, "\t-o filename -- save output to file\n");
 	exit(1);
 }
@@ -643,37 +658,18 @@ int main(int argc, char **argv)
 {
 	FILE *file;
 	const struct aiScene *scene;
-	struct aiMatrix4x4 mat;
 	char *p;
 	int c, k;
-
-	int flags = aiProcess_Triangulate;
-	flags |= aiProcess_JoinIdenticalVertices;
-	flags |= aiProcess_GenSmoothNormals;
-	flags |= aiProcess_GenUVCoords;
-	flags |= aiProcess_TransformUVCoords;
-	//flags |= aiProcess_LimitBoneWeights;
-	//flags |= aiProcess_FindInvalidData;
-	flags |= aiProcess_ImproveCacheLocality;
-	//flags |= aiProcess_RemoveRedundantMaterials;
-	//flags |= aiProcess_OptimizeMeshes;
-	//flags |= aiProcess_OptimizeGraph;
-	//flags |= aiProcess_RemoveComponent;
-
-	aiIdentityMatrix4(&mat);
-
-//	struct aiLogStream stream;
-//	stream = aiGetPredefinedLogStream(aiDefaultLogStream_FILE, "import.log");
-//	aiAttachLogStream(&stream);
 
 	char *output = NULL;
 	char *input = NULL;
 	int domesh = 1;
 
-	while ((c = getopt(argc, argv, "abmo:")) != -1) {
+	while ((c = getopt(argc, argv, "abfmo:")) != -1) {
 		switch (c) {
 		case 'a': domesh = 0; break;
 		case 'b': save_all_bones = 1; break;
+		case 'f': doflip = 1; break;
 		case 'm': need_to_bake_skin = 1; break;
 		case 'o': output = optarg++; break;
 		default: usage(); break;
@@ -695,6 +691,22 @@ int main(int argc, char **argv)
 	numtags = argc - optind;
 	taglist = argv + optind;
 
+
+	/*
+	 * Read input file and process with assimp
+	 */
+
+	int flags = aiProcess_Triangulate;
+	flags |= aiProcess_JoinIdenticalVertices;
+	flags |= aiProcess_GenSmoothNormals;
+	flags |= aiProcess_GenUVCoords;
+	flags |= aiProcess_TransformUVCoords;
+	flags |= aiProcess_LimitBoneWeights;
+	//flags |= aiProcess_FindInvalidData;
+	flags |= aiProcess_ImproveCacheLocality;
+	//flags |= aiProcess_RemoveRedundantMaterials;
+	//flags |= aiProcess_OptimizeMeshes;
+
 	fprintf(stderr, "loading %s\n", input);
 	scene = aiImportFile(input, flags);
 	if (!scene) {
@@ -702,30 +714,40 @@ int main(int argc, char **argv)
 		exit(1);
 	}
 
-	// Nuke the Z-UP to Y-UP rotation matrix (if MaxScene)
-	if (!strcmp(scene->mRootNode->mName.data, "MaxScene"))
-		aiIdentityMatrix4(&scene->mRootNode->mTransformation);
+	/*
+	 * Fiddle with the data and bang it into a shape suitable for
+	 * exporting to IQE.
+	 */
 
+	// Convert to Z-UP coordinate system
+	struct aiMatrix4x4 yup_to_zup = {
+		1, 0, 0, 0,
+		0, 0, -1, 0,
+		0, 1, 0, 0,
+		0, 0, 0, 1
+	};
+	aiMultiplyMatrix4(&scene->mRootNode->mTransformation, &yup_to_zup);
+
+	// Do we have a skeleton?
 	for (k = 0; k < scene->mNumMeshes; k++)
 		if (scene->mMeshes[k]->mNumBones > 0)
 			dobone = 1;
+
+	// Do we have animations?
 	if (scene->mNumAnimations > 0)
 		doanim = 1;
 
+	// Make a list of useful bones
 	build_bone_list(scene);
+
 	if (need_to_bake_skin) {
 		apply_initial_frame();
 		bake_scene_skin(scene);
 	}
 
-	// Nuke all non-bone transforms.
-	// Should take care of icky mesh transforms that mess up our bind pose
-	// since mOffsetMatrix is in local mesh space, not global model space.
-	if (dobone) {
-		for (k = 0; k < numbones; k++)
-			if (!bonelist[k].isbone)
-				aiIdentityMatrix4(&bonelist[k].node->mTransformation);
-	}
+	/*
+	 * Export scene as mesh/skeleton/animation
+	 */
 
 	if (output) {
 		fprintf(stderr, "saving %s\n", output);
@@ -740,17 +762,22 @@ int main(int argc, char **argv)
 
 	fprintf(file, "# Inter-Quake Export\n");
 
-	if (dobone) export_bone_list(file);
-	if (domesh) export_node(file, scene, scene->mRootNode, mat, "unnamed");
-	if (doanim) export_animations(file, scene);
-	else if (!domesh) { // oops, forced anim but only one frame
-		fprintf(file, "\nanimation %s\n", basename);
-		fprintf(file, "framerate 30\n");
-		apply_initial_frame();
-		export_frame(file, 0);
+	if (dobone) {
+		export_bone_list(file);
 	}
 
-	fclose(file);
+	if (domesh) {
+		struct aiMatrix4x4 mat;
+		aiIdentityMatrix4(&mat);
+		export_node(file, scene, scene->mRootNode, mat, "SCENE");
+	}
+
+	if (doanim) {
+		export_animations(file, scene);
+	}
+
+	if (output)
+		fclose(file);
 
 	aiReleaseImport(scene);
 
