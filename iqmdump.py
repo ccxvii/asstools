@@ -2,7 +2,6 @@
 
 import sys, math, struct
 
-iqmver = 1
 iqm_va_type = {
 	0: "POSITION",
 	1: "TEXCOORD",
@@ -26,24 +25,17 @@ iqm_va_type = {
 }
 
 def cstr(text, ofs):
-	t = ""
-	while text[ofs] != "\0":
-		t += text[ofs]
-		ofs += 1
-	return t
-
-def restorew(rot):
-	x, y, z = rot
-	w = -math.sqrt(max(1 - x*x - y*y - z*z, 0))
-	return x, y, z, w
+	len = 0
+	while text[ofs+len] != "\0":
+		len += 1
+	return text[ofs:ofs+len]
 
 def optscale(scale):
 	x, y, z = scale
-	if abs(x) - 1 > 0.001: return x, y, z
-	if abs(y) - 1 > 0.001: return x, y, z
-	if abs(z) - 1 > 0.001: return x, y, z
+	if abs(x - 1) > 0.0001: return x, y, z
+	if abs(y - 1) > 0.0001: return x, y, z
+	if abs(z - 1) > 0.0001: return x, y, z
 	return ()
-	#return x, y, z
 
 def fmtv(v): return " ".join(["%g" % x for x in v])
 def fmtb(v): return " ".join(["%g" % (x/255.0) for x in v])
@@ -53,38 +45,26 @@ def dump_joints(file, text, num_joints, ofs_joints):
 	file.seek(ofs_joints)
 	jointlist = []
 	for x in range(num_joints):
-		if iqmver == 1:
-			joint = struct.unpack("<Ii9f", file.read(11*4))
-		else:
-			joint = struct.unpack("<Ii10f", file.read(12*4))
+		joint = struct.unpack("<Ii10f", file.read(12*4))
 		jointlist += (joint,)
+	print
 	for joint in jointlist:
 		name = cstr(text, joint[0])
 		parent = joint[1]
 		print "joint", name, parent
+	print
 	for joint in jointlist:
-		if iqmver == 1:
-			pos = joint[2:5]
-			rot = joint[5:8]
-			scale = joint[8:11]
-			print "pq", fmtp(pos + restorew(rot) + optscale(scale))
-		else:
-			pos = joint[2:5]
-			rot = joint[5:9]
-			scale = joint[9:12]
-			print "pq", fmtp(pos + rot + optscale(scale))
+		pos = joint[2:5]
+		rot = joint[5:9]
+		scale = joint[9:12]
+		print "pq", fmtp(pos + rot + optscale(scale))
 
 def load_poses(file, num_poses, ofs_poses):
 	file.seek(ofs_poses)
 	poselist = []
 	for x in range(num_poses):
-		if iqmver == 1:
-			pose = struct.unpack("<iI18f", file.read(20*4))
-		else:
-			pose = struct.unpack("<iI20f", file.read(22*4))
+		pose = struct.unpack("<iI20f", file.read(22*4))
 		poselist.append(pose)
-	#print "pose list", len(poselist)
-	#print poselist
 	return poselist
 
 def load_frames(file, num_frames, num_framechannels, ofs_frames):
@@ -97,26 +77,17 @@ def load_frames(file, num_frames, num_framechannels, ofs_frames):
 	return framelist
 
 def dump_frame(poselist, frame):
-	masktest = [0x01, 0x02, 0x04, 0x08, 0x10, 0x20, 0x40, 0x80, 0x100]
-	LEN = 9
-	if iqmver > 1:
-		masktest += [0x200]
-		LEN = 10
+	masktest = [0x01, 0x02, 0x04, 0x08, 0x10, 0x20, 0x40, 0x80, 0x100, 0x200]
 	p = 0
 	for pose in poselist:
 		mask = pose[1]
-		choffset = pose[2:2+LEN]
-		chscale = pose[2+LEN:2+LEN+LEN]
+		choffset = pose[2:2+10]
+		chscale = pose[2+10:2+10+10]
 		data = [x for x in choffset]
-		for x in range(LEN):
+		for x in range(10):
 			if mask & masktest[x]:
 				data[x] += chscale[x] * frame[p]
 				p += 1
-		if iqmver == 1:
-			pos = data[0:3]
-			rot = [x for x in restorew(data[3:6])]
-			scale = [x for x in optscale(data[6:9])]
-		else:
 			pos = data[0:3]
 			rot = [x for x in data[3:7]]
 			scale = [x for x in optscale(data[7:10])]
@@ -176,19 +147,15 @@ def dump_verts(verts, first, count):
 		if verts[0]: print "vp", fmtv(verts[0][x])
 		if verts[1]: print "vt", fmtv(verts[1][x])
 		if verts[2]: print "vn", fmtv(verts[2][x])
-		# automatically computed by "iqm" tool
-		# if verts[3]: print "v3", fmtv(verts[3][x])
 		if verts[4] and verts[5]:
 			out = "vb"
 			for y in range(4):
-				out += " %d" % verts[4][x][y]
-				out += " %g" % (verts[5][x][y]/255.0)
+				if verts[5][x][y] > 0:
+					out += " %d" % verts[4][x][y]
+					out += " %g" % (verts[5][x][y]/255.0)
 			print out
 		if verts[6]:
 			print "vc", fmtb(verts[6][x])
-		if verts[7]: print "v7", fmtv(verts[7][x])
-		if verts[8]: print "v8", fmtv(verts[8][x])
-		if verts[9]: print "v9", fmtv(verts[9][x])
 
 def dump_tris(tris, first, count, fv):
 	for x in range(first, first+count):
@@ -209,8 +176,6 @@ def dump_meshes(file, text, num_meshes, ofs_meshes, verts, tris):
 		dump_tris(tris, t1, tnum, v1)
 
 def dump_iqm(file):
-	global iqmver
-
 	hdr = struct.unpack("<16s27I", file.read(124));
 	( magic, version, filesize, flags,
 		num_text, ofs_text,
@@ -228,7 +193,9 @@ def dump_iqm(file):
 		print >>sys.stderr, "Not an IQM file."
 		sys.exit(1)
 
-	iqmver = version
+	if version != 2:
+		print >>sys.stderr, "Not an IQMv2 file."
+		sys.exit(1)
 
 	print "# Inter-Quake Export (v%d)" % version
 
