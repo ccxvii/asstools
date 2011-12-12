@@ -197,7 +197,7 @@ char *find_material(struct aiMaterial *material)
 void mark_bone_parents(int i)
 {
 	while (i >= 0) {
-		bonelist[i].isbone |= 0x20;
+		bonelist[i].isbone = 1;
 		i = bonelist[i].parent;
 	}
 }
@@ -209,7 +209,7 @@ void mark_tags(void)
 		fprintf(stderr, "marking tag %s\n", taglist[k]);
 		for (i = 0; i < numbones; i++) {
 			if (!strcmp(taglist[k], node_name(bonelist[i].name))) {
-				bonelist[i].isbone |= 0x4000;
+				bonelist[i].isbone = 1;
 				break;
 			}
 		}
@@ -253,7 +253,7 @@ void build_bone_list(const struct aiScene *scene)
 			b = find_bone(mesh->mBones[a]->mName.data);
 			if (!bonelist[b].isbone) {
 				bonelist[b].invpose = mesh->mBones[a]->mOffsetMatrix;
-				bonelist[b].isbone |= 1;
+				bonelist[b].isbone = 1;
 			} else if (!need_to_bake_skin) {
 				if (memcmp(&bonelist[b].invpose, &mesh->mBones[a]->mOffsetMatrix, sizeof bonelist[b].invpose))
 					need_to_bake_skin = 1;
@@ -291,7 +291,7 @@ void build_bone_list(const struct aiScene *scene)
 		const struct aiAnimation *anim = scene->mAnimations[i];
 		for (k = 0; k < anim->mNumChannels; k++) {
 			b = find_bone(anim->mChannels[k]->mNodeName.data);
-			bonelist[b].isbone |= 0x300;
+			bonelist[b].isbone = 1;
 		}
 	}
 
@@ -304,24 +304,27 @@ void build_bone_list(const struct aiScene *scene)
 			mark_bone_parents(i);
 	}
 
-	// select all children of bones as well
-	if (save_all_bones) {
-		for (i = 0; i < numbones; i++) {
-			if (!bonelist[i].isbone)
-				if (bonelist[i].parent >= 0 && bonelist[bonelist[i].parent].isbone)
-					bonelist[i].isbone |= 0x1000;
-		}
-	}
-
 	// skip root node if it has 1 child and identity transform
 	int count = 0;
 	for (i = 0; i < numbones; i++)
 		if (bonelist[i].isbone && bonelist[i].parent == 0)
 			count++;
 	if (count == 1 && is_identity_matrix(&bonelist[0].node->mTransformation)) {
-		fprintf(stderr, "skipping root node with one child and identity transform\n");
+		fprintf(stderr, "skipping root with one child and identity transform\n");
 		bonelist[0].isbone = 0;
 		bonelist[0].number = -1;
+	}
+
+	// select all children of bones as well.
+	// this will select 'dead' leaves in the skeleton
+ 	// with no mesh and no animation keys.
+	// could be useful for 'tag' objects if you don't use the mark_tags feature.
+	if (save_all_bones) {
+		for (i = 0; i < numbones; i++) {
+			if (!bonelist[i].isbone)
+				if (bonelist[i].parent >= 0 && bonelist[bonelist[i].parent].isbone)
+					bonelist[i].isbone = 1;
+		}
 	}
 
 	for (i = 0; i < numbones; i++)
