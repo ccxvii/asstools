@@ -15,6 +15,14 @@
 
 #include "getopt.h"
 
+int need_to_bake_skin = 0;
+int save_all_bones = 0;
+
+int dorigid = 0; // export rigid (non-deformed) nodes as bones too
+int doanim = 0; // export animations
+int dobone = 0; // export skeleton
+int doflip = 0; // export flipped (quake-style) triangles and normals
+
 #define EPSILON 0.00001
 #define NEAR_0(x) (fabs((x)) < EPSILON)
 #define NEAR_1(x) (NEAR_0((x)-1))
@@ -108,6 +116,7 @@ struct bone {
 	int number; // for iqe export
 	int parent;
 	int isbone;
+	int isrigid;
 	struct aiNode *node;
 	struct aiMatrix4x4 invpose; // inv(parent * pose)
 	struct aiMatrix4x4 abspose; // (parent * pose)
@@ -118,13 +127,6 @@ struct bone {
 	struct aiQuaternion rotate;
 	struct aiVector3D scale;
 };
-
-int need_to_bake_skin = 0;
-int save_all_bones = 0;
-
-int doanim = 0;	// export animations
-int dobone = 0;	// export skeleton
-int doflip = 0;	// export flipped (quake-style) triangles and normals
 
 struct bone bonelist[1000];
 int numbones = 0;
@@ -194,6 +196,27 @@ char *find_material(struct aiMaterial *material)
 
 // --- figure out which bones are part of armature ---
 
+void build_bone_list_imp(struct aiNode *node, int parent)
+{
+	int i;
+
+	bonelist[numbones].name = node->mName.data;
+	bonelist[numbones].parent = parent;
+	bonelist[numbones].isbone = 0;
+	bonelist[numbones].isrigid = 0;
+	bonelist[numbones].node = node;
+
+	// all non-bone nodes in our animated models have identity matrix
+	// or are bones with no weights, so don't matter
+	aiIdentityMatrix4(&bonelist[numbones].invpose);
+	aiIdentityMatrix4(&bonelist[numbones].abspose);
+	aiIdentityMatrix4(&bonelist[numbones].pose);
+
+	parent = numbones++;
+	for (i = 0; i < node->mNumChildren; i++)
+		build_bone_list_imp(node->mChildren[i], parent);
+}
+
 void mark_bone_parents(int i)
 {
 	while (i >= 0) {
@@ -218,24 +241,21 @@ void mark_tags(void)
 	}
 }
 
-void build_bone_list_imp(struct aiNode *node, int parent)
+void mark_rigid_nodes(const struct aiScene *scene)
 {
-	int i;
-
-	bonelist[numbones].name = node->mName.data;
-	bonelist[numbones].parent = parent;
-	bonelist[numbones].isbone = 0;
-	bonelist[numbones].node = node;
-
-	// all non-bone nodes in our animated models have identity matrix
-	// or are bones with no weights, so don't matter
-	aiIdentityMatrix4(&bonelist[numbones].invpose);
-	aiIdentityMatrix4(&bonelist[numbones].abspose);
-	aiIdentityMatrix4(&bonelist[numbones].pose);
-
-	parent = numbones++;
-	for (i = 0; i < node->mNumChildren; i++)
-		build_bone_list_imp(node->mChildren[i], parent);
+	int i, k;
+	for (i = 0; i < numbones; i++) {
+		struct aiNode *node = bonelist[i].node;
+		for (k = 0; k < node->mNumMeshes; k++) {
+			struct aiMesh *mesh = scene->mMeshes[node->mMeshes[k]];
+			if (mesh->mNumBones == 0 && !is_identity_matrix(&node->mTransformation)) {
+				bonelist[i].isbone = 1;
+				bonelist[i].isrigid = 1;
+			}
+		}
+		if (bonelist[i].isrigid)
+			fprintf(stderr, "selecting rigid bone %s\n", node_name(bonelist[i].name));
+	}
 }
 
 void build_bone_list(const struct aiScene *scene)
@@ -261,7 +281,11 @@ void build_bone_list(const struct aiScene *scene)
 		}
 	}
 
-	// we now (in the single mesh case) have our bind pose
+	// mark rigid bones
+	if (dorigid)
+		mark_rigid_nodes(scene);
+
+	// we now (in the single mesh / non-baking case) have our bind pose
 	// our invpose is set to the inv_bind_pose matrix
 	// compute forward abspose and pose matrices here
 	for (i = 0; i < numbones; i++) {
@@ -275,7 +299,7 @@ void build_bone_list(const struct aiScene *scene)
 			}
 		} else {
 			// no inv_bind_pose matrix (so not used by skin)
-			// take the pose from the first frame of animation
+			// take the pose from the initial state
 			bonelist[i].pose = bonelist[i].node->mTransformation;
 			bonelist[i].abspose = bonelist[i].pose;
 			if (bonelist[i].parent >= 0) {
@@ -335,6 +359,8 @@ void build_bone_list(const struct aiScene *scene)
 	for (i = 0; i < numbones; i++)
 		if (bonelist[i].isbone)
 			bonelist[i].number = number++;
+
+	fprintf(stderr, "selected %d bones\n", number);
 }
 
 // --- export poses and animation frames ---
@@ -385,8 +411,7 @@ void export_bone_list(FILE *out)
 	for (i = 0; i < numbones; i++) {
 		if (bonelist[i].isbone) {
 			aiDecomposeMatrix(&bonelist[i].pose, &bonelist[i].scale, &bonelist[i].rotate, &bonelist[i].translate);
-			// export_pose(out, i);
-			export_pm(out, &bonelist[i].pose);
+			export_pose(out, i);
 		}
 	}
 }
@@ -454,7 +479,7 @@ void export_animations(FILE *out, const struct aiScene *scene)
 /*
  * For multi-mesh models, sometimes each mesh has its own inv_bind_matrix set
  * for each bone. To export to IQE we must have only one inv_bind_matrix per
- * bone. We can bake the mesh by animating it to the first animation frame.
+ * bone. We can bake the mesh by animating it to the initial frame.
  * Once this is done, set the inv_bind_matrix to be the inverse of the forward
  * bind_matrix of this pose.
  */
@@ -559,11 +584,8 @@ void export_node(FILE *out, const struct aiScene *scene, const struct aiNode *no
 		struct aiMesh *mesh = scene->mMeshes[node->mMeshes[i]];
 		struct aiMaterial *material = scene->mMaterials[mesh->mMaterialIndex];
 
-		/* skip non-boned meshes if we have a skeleton */
-		// TODO: we could fake bones here by adding a bone for this node
-		// and hard coding the blend index and weight for it.
-		if (mesh->mNumBones == 0 && dobone) {
-			fprintf(stderr, "skipping mesh %d in node %s (no bones)\n", i, nodename);
+		if (mesh->mNumBones == 0 && dobone && !dorigid) {
+			fprintf(stderr, "skipping rigid mesh %d in node %s (no bones)\n", i, nodename);
 			continue;
 		}
 
@@ -582,6 +604,18 @@ void export_node(FILE *out, const struct aiScene *scene, const struct aiNode *no
 
 		fprintf(out, "material %s\n", find_material(material));
 
+		// A rigidly animated node -- insert fake blend index/weights
+		if (mesh->mNumBones == 0 && dobone) {
+			a = find_bone((char*)node->mName.data);
+			fprintf(stderr, "rigid bone %d for mesh %d in node %s (no bones)\n", bonelist[a].number, i, nodename);
+			for (k = 0; k < mesh->mNumVertices; k++) {
+				vb[k].b[0] = bonelist[a].number;
+				vb[k].w[0] = 1;
+				vb[k].n = 1;
+			}
+		}
+
+		// Assemble blend index/weight array
 		for (k = 0; k < mesh->mNumBones; k++) {
 			struct aiBone *bone = mesh->mBones[k];
 			a = find_bone(bone->mName.data);
@@ -620,12 +654,13 @@ void export_node(FILE *out, const struct aiScene *scene, const struct aiNode *no
 				float g = mesh->mColors[0][k].g; g = floorf(g * 255) / 255;
 				float b = mesh->mColors[0][k].b; b = floorf(b * 255) / 255;
 				float a = mesh->mColors[0][k].a; a = floorf(a * 255) / 255;
-				fprintf(out, "vc %g %g %g %g\n", r, g, b, 1.0);
+				fprintf(out, "vc %g %g %g %g\n", r, g, b, a);
 			}
-			if (mesh->mNumBones > 0) {
+			if (dobone) {
 				fprintf(out, "vb");
-				for (t = 0; t < vb[k].n; t++)
+				for (t = 0; t < vb[k].n; t++) {
 					fprintf(out, " %d %g", vb[k].b[t], vb[k].w[t]);
+				}
 				fprintf(out, "\n");
 			}
 		}
@@ -651,8 +686,9 @@ void usage()
 	fprintf(stderr, "usage: assiqe [options] [-o out.iqe] input.dae [tags ...]\n");
 	fprintf(stderr, "\t-a -- only export animations\n");
 	fprintf(stderr, "\t-b -- export unused bones too\n");
-	fprintf(stderr, "\t-m -- bake mesh to bind pose / first frame\n");
+	fprintf(stderr, "\t-m -- bake mesh to bind pose / initial frame\n");
 	fprintf(stderr, "\t-f -- flip normals and winding order\n");
+	fprintf(stderr, "\t-r -- export rigid nodes too\n");
 	fprintf(stderr, "\t-o filename -- save output to file\n");
 	exit(1);
 }
@@ -668,13 +704,14 @@ int main(int argc, char **argv)
 	char *input = NULL;
 	int domesh = 1;
 
-	while ((c = getopt(argc, argv, "abfmo:")) != -1) {
+	while ((c = getopt(argc, argv, "abfmo:r")) != -1) {
 		switch (c) {
 		case 'a': domesh = 0; break;
 		case 'b': save_all_bones = 1; break;
 		case 'f': doflip = 1; break;
 		case 'm': need_to_bake_skin = 1; break;
 		case 'o': output = optarg++; break;
+		case 'r': dorigid = 1; break;
 		default: usage(); break;
 		}
 	}
