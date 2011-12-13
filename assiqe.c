@@ -23,6 +23,10 @@ int doanim = 0; // export animations
 int dobone = 0; // export skeleton
 int doflip = 0; // export flipped (quake-style) triangles and normals
 
+// We use %.9g to print floats with 9 digits of precision which
+// is enough to represent a 32-bit float accurately, while still
+// shortening if possible to save space for all those 0s and 1s.
+
 #define EPSILON 0.00001
 #define NEAR_0(x) (fabs((x)) < EPSILON)
 #define NEAR_1(x) (NEAR_0((x)-1))
@@ -367,11 +371,11 @@ void build_bone_list(const struct aiScene *scene)
 
 void export_pm(FILE *out, struct aiMatrix4x4 *m)
 {
-	fprintf(out, "pm %g %g %g %g %g %g %g %g %g %g %g %g\n",
-			KILL(m->a4), KILL(m->b4), KILL(m->c4),
-			KILL(m->a1), KILL(m->a2), KILL(m->a3),
-			KILL(m->b1), KILL(m->b2), KILL(m->b3),
-			KILL(m->c1), KILL(m->c2), KILL(m->c3));
+	fprintf(out, "pm %.9g %.9g %.9g %.9g %.9g %.9g %.9g %.9g %.9g %.9g %.9g %.9g\n",
+		(m->a4), (m->b4), (m->c4),
+		(m->a1), (m->a2), (m->a3),
+		(m->b1), (m->b2), (m->b3),
+		(m->c1), (m->c2), (m->c3));
 }
 
 void export_pose(FILE *out, int i)
@@ -380,14 +384,21 @@ void export_pose(FILE *out, int i)
 	struct aiVector3D scale = bonelist[i].scale;
 	struct aiVector3D translate = bonelist[i].translate;
 
-	if (NEAR_1(scale.x) && NEAR_1(scale.y) && NEAR_1(scale.z))
-		fprintf(out, "pq %g %g %g %g %g %g %g\n",
-			KILL(translate.x), KILL(translate.y), KILL(translate.z),
-			KILL(rotate.x), KILL(rotate.y), KILL(rotate.z), KILL(rotate.w));
+	if (rotate.w >= 0) {
+		rotate.x = -rotate.x;
+		rotate.y = -rotate.y;
+		rotate.z = -rotate.z;
+		rotate.w = -rotate.w;
+	}
+
+	if (KILL(scale.x) == 1 && KILL(scale.y) == 1 && KILL(scale.z) == 1)
+		fprintf(out, "pq %.9g %.9g %.9g %.9g %.9g %.9g %.9g\n",
+			KILL_0(translate.x), KILL_0(translate.y), KILL_0(translate.z),
+			(rotate.x), (rotate.y), (rotate.z), (rotate.w));
 	else
-		fprintf(out, "pq %g %g %g %g %g %g %g %g %g %g\n",
-			KILL(translate.x), KILL(translate.y), KILL(translate.z),
-			KILL(rotate.x), KILL(rotate.y), KILL(rotate.z), KILL(rotate.w),
+		fprintf(out, "pq %.9g %.9g %.9g %.9g %.9g %.9g %.9g %.9g %.9g %.9g\n",
+			KILL_0(translate.x), KILL_0(translate.y), KILL_0(translate.z),
+			(rotate.x), (rotate.y), (rotate.z), (rotate.w),
 			KILL(scale.x), KILL(scale.y), KILL(scale.z));
 }
 
@@ -634,32 +645,32 @@ void export_node(FILE *out, const struct aiScene *scene, const struct aiNode *no
 			struct aiVector3D vp = mesh->mVertices[k];
 			if (!dobone)
 				aiTransformVecByMatrix4(&vp, &mat);
-			fprintf(out, "vp %g %g %g\n", vp.x, vp.y, vp.z);
+			fprintf(out, "vp %.9g %.9g %.9g\n", vp.x, vp.y, vp.z);
 			if (mesh->mTextureCoords[0]) {
 				float u = mesh->mTextureCoords[0][k].x;
 				float v = 1 - mesh->mTextureCoords[0][k].y;
-				fprintf(out, "vt %g %g\n", u, v);
+				fprintf(out, "vt %.9g %.9g\n", u, v);
 			} else fprintf(out, "vt 0 0\n");
 			if (mesh->mNormals) {
 				struct aiVector3D vn = mesh->mNormals[k];
 				if (!dobone)
 					aiTransformVecByMatrix3(&vn, &mat3);
-				if (doflip)
-						fprintf(out, "vn %g %g %g\n", -vn.x, -vn.y, -vn.z);
-				else
-						fprintf(out, "vn %g %g %g\n", vn.x, vn.y, vn.z);
+				if (doflip) {
+					vn.x = -vn.x; vn.y = -vn.y; vn.z = -vn.z;
+				}
+				fprintf(out, "vn %.9g %.9g %.9g\n", vn.x, vn.y, vn.z);
 			}
 			if (mesh->mColors[0]) {
 				float r = mesh->mColors[0][k].r; r = floorf(r * 255) / 255;
 				float g = mesh->mColors[0][k].g; g = floorf(g * 255) / 255;
 				float b = mesh->mColors[0][k].b; b = floorf(b * 255) / 255;
 				float a = mesh->mColors[0][k].a; a = floorf(a * 255) / 255;
-				fprintf(out, "vc %g %g %g %g\n", r, g, b, a);
+				fprintf(out, "vc %.9g %.9g %.9g %.9g\n", r, g, b, a);
 			}
 			if (dobone) {
 				fprintf(out, "vb");
 				for (t = 0; t < vb[k].n; t++) {
-					fprintf(out, " %d %g", vb[k].b[t], vb[k].w[t]);
+					fprintf(out, " %d %.9g", vb[k].b[t], vb[k].w[t]);
 				}
 				fprintf(out, "\n");
 			}
@@ -814,6 +825,17 @@ int main(int argc, char **argv)
 
 	if (doanim) {
 		export_animations(file, scene);
+	} else if (!domesh) {
+		/* oops, -a but no animation! duplicate initial pose as 1-frame anim */
+		int i;
+		fprintf(file, "\n");
+		fprintf(file, "\nanimation %s\n", basename);
+		fprintf(file, "framerate 30\n");
+		fprintf(file, "frame\n");
+		for (i = 0; i < numbones; i++) {
+			if (bonelist[i].isbone)
+				export_pose(file, i);
+		}
 	}
 
 	if (output)

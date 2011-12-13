@@ -37,9 +37,9 @@ def optscale(scale):
 	if abs(z - 1) > 0.0001: return x, y, z
 	return ()
 
-def fmtv(v): return " ".join(["%g" % x for x in v])
-def fmtb(v): return " ".join(["%g" % (x/255.0) for x in v])
-def fmtp(v): return " ".join(["%g" % x for x in v])
+def fmtv(v): return " ".join(["%.9g" % x for x in v])
+def fmtb(v): return " ".join(["%.9g" % (x/255.0) for x in v])
+def fmtp(v): return " ".join(["%.9g" % x for x in v])
 
 def dump_joints(file, text, num_joints, ofs_joints):
 	file.seek(ofs_joints)
@@ -102,7 +102,7 @@ def dump_anims(file, text, num_anims, ofs_anims, poses, frames):
 		count = anim[2]
 		print
 		print "animation", name
-		print "framerate", anim[3]
+		print "framerate %g" % anim[3]
 		if anim[4]: print "loop"
 		for y in range(first, first+count):
 			print
@@ -152,7 +152,7 @@ def dump_verts(verts, first, count):
 			for y in range(4):
 				if verts[5][x][y] > 0:
 					out += " %d" % verts[4][x][y]
-					out += " %g" % (verts[5][x][y]/255.0)
+					out += " %.9g" % (verts[5][x][y]/255.0)
 			print out
 		if verts[6]:
 			print "vc", fmtb(verts[6][x])
