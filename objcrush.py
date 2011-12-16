@@ -112,6 +112,7 @@ def load_model(filename):
 def save_material(filename, mtllib):
 	file = open(filename, "w")
 	print >>file, "# Wavefront Material Library"
+	print >>file, "# Created by objcrush"
 	for name in sorted(mtllib):
 		print >>file
 		print >>file, 'newmtl %s' % name
@@ -130,16 +131,22 @@ def save_model(filename, model):
 
 	file = open(filename, "w")
 	print >>file, "# Wavefront Model"
+	print >>file, "# Created by objcrush"
+	print >>file
 	print >>file, "mtllib", os.path.basename(mtlfile)
 
+	print >>file
 	for x, y, z in vertex:
 		print >>file, 'v', x, y, z
+	print >>file
 	for u, v in texcoord:
 		print >>file, 'vt', u, v
+	print >>file
 	for x, y, z in normal:
 		print >>file, 'vn', x, y, z
 
 	for g in sorted(group):
+		print >>file
 		print >>file, 'g', g
 		face = group[g]
 

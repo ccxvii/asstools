@@ -31,7 +31,7 @@ void export_materials(FILE *out, const struct aiScene *scene)
 	int i;
 
 	fprintf(out, "# Wavefront Material Library\n");
-	fprintf(out, "# Created by ass2obj exporter\n");
+	fprintf(out, "# Created by assobj exporter\n");
 
 	for (i = 0; i < scene->mNumMaterials; i++) {
 		aiGetMaterialString(scene->mMaterials[i], AI_MATKEY_NAME, &str);
@@ -94,16 +94,16 @@ void export_scene(FILE *out, const struct aiScene *scene, const struct aiNode *n
 		for (k = 0; k < mesh->mNumVertices; k++) {
 			struct aiVector3D vp = mesh->mVertices[k];
 			aiTransformVecByMatrix4(&vp, &mat);
-			fprintf(out, "v %g %g %g\n", vp.x, vp.y, vp.z);
+			fprintf(out, "v %.9g %.9g %.9g\n", vp.x, vp.y, vp.z);
 			if (mesh->mTextureCoords[0]) {
 				float u = mesh->mTextureCoords[0][k].x;
 				float v = mesh->mTextureCoords[0][k].y;
-				fprintf(out, "vt %g %g\n", u, v);
+				fprintf(out, "vt %.9g %.9g\n", u, v);
 			}
 			if (mesh->mNormals) {
 				struct aiVector3D vn = mesh->mNormals[k];
 				aiTransformVecByMatrix3(&vn, &mat3);
-				fprintf(out, "vn %g %g %g\n", vn.x, vn.y, vn.z);
+				fprintf(out, "vn %.9g %.9g %.9g\n", vn.x, vn.y, vn.z);
 			}
 		}
 		for (k = 0; k < mesh->mNumFaces; k++) {
@@ -145,7 +145,6 @@ int main(int argc, char **argv)
 	char objname[1024];
 	char mtlname[1024];
 	FILE *file;
-	struct aiLogStream stream;
 	const struct aiScene *scene;
 	struct aiMatrix4x4 mat;
 	char *p;
@@ -158,15 +157,6 @@ int main(int argc, char **argv)
 		aiProcess_GenUVCoords |
 		aiProcess_TransformUVCoords |
 		aiProcess_FindInvalidData;
-
-	// flags |= aiProcess_RemoveRedundantMaterials;
-	// flags |= aiProcess_OptimizeMeshes;
-	// flags |= aiProcess_OptimizeGraph;
-	// flags |= aiProcess_RemoveComponent;
-	flags |= aiProcess_ImproveCacheLocality;
-
-	stream = aiGetPredefinedLogStream(aiDefaultLogStream_FILE, "import.log");
-	aiAttachLogStream(&stream);
 
 	aiIdentityMatrix4(&mat);
 
@@ -198,7 +188,7 @@ int main(int argc, char **argv)
 		printf("saving %s\n", objname);
 		file = fopen(objname, "w");
 		fprintf(file, "# Wavefront Model\n");
-		fprintf(file, "# Created by ass2obj exporter\n");
+		fprintf(file, "# Created by assobj exporter\n");
 		fprintf(file, "mtllib %s\n", p);
 		export_scene(file, scene, scene->mRootNode, mat, "unnamed");
 		fclose(file);
