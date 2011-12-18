@@ -168,8 +168,10 @@ char *node_name(char *orig)
 	if (strstr(orig, "node-") == orig)
 		orig += 5;
 	strcpy(buf, orig);
-	for (p = buf; *p; p++)
+	for (p = buf; *p; p++) {
 		*p = tolower(*p);
+		if (*p == ' ') *p = '_';
+	}
 	return buf;
 }
 
