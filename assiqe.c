@@ -368,10 +368,10 @@ int build_bone_list(const struct aiScene *scene)
 
 	build_bone_list_from_nodes(scene->mRootNode, -1);
 
-	if (domesh)
+	if (domesh || save_all_bones)
 		mark_skinned_bones(scene);
 
-	if (doanim)
+	if (doanim || save_all_bones)
 		mark_animated_bones(scene);
 
 	if (dorigid)
@@ -511,6 +511,20 @@ int animation_length(const struct aiAnimation *anim)
 	return len;
 }
 
+void export_static_animation(FILE *out, const struct aiScene *scene)
+{
+	int i;
+	apply_initial_frame();
+	fprintf(out, "\n");
+	fprintf(out, "\nanimation %s\n", basename);
+	fprintf(out, "framerate 30\n");
+	fprintf(out, "frame\n");
+	for (i = 0; i < numbones; i++) {
+		if (bonelist[i].isbone)
+			export_pose(out, i);
+	}
+}
+
 void export_animations(FILE *out, const struct aiScene *scene)
 {
 	int i, k, len;
@@ -528,17 +542,8 @@ void export_animations(FILE *out, const struct aiScene *scene)
 			export_frame(out, anim, k);
 	}
 
-	if (scene->mNumAnimations == 0) {
-		/* oops, -a but no animation! duplicate initial pose as 1-frame anim */
-		fprintf(out, "\n");
-		fprintf(out, "\nanimation %s\n", basename);
-		fprintf(out, "framerate 30\n");
-		fprintf(out, "frame\n");
-		for (i = 0; i < numbones; i++) {
-			if (bonelist[i].isbone)
-				export_pose(out, i);
-		}
-	}
+	if (scene->mNumAnimations == 0)
+		export_static_animation(out, scene);
 }
 
 /*
@@ -858,8 +863,11 @@ int main(int argc, char **argv)
 		export_node(file, scene, scene->mRootNode, mat, "SCENE");
 	}
 
+	// we always want to export the static initial pose as an animation
 	if (doanim) {
 		export_animations(file, scene);
+	} else {
+		export_static_animation(file, scene);
 	}
 
 	if (output)
