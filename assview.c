@@ -110,7 +110,7 @@ unsigned int loadmaterial(struct aiMaterial *material)
  */
 
 // convert 4x4 to column major format for opengl
-void convertmatrix(float m[16], struct aiMatrix4x4 *p)
+void transposematrix(float m[16], struct aiMatrix4x4 *p)
 {
 	m[0] = p->a1; m[4] = p->a2; m[8] = p->a3; m[12] = p->a4;
 	m[1] = p->b1; m[5] = p->b2; m[9] = p->b3; m[13] = p->b4;
@@ -335,13 +335,14 @@ void initscene(struct aiScene *scene)
 
 void drawmesh(struct mesh *mesh)
 {
-	glColor4f(1, 1, 1, 1);
+	if (mesh->texture > 0)
+		glColor4f(1, 1, 1, 1);
+	else
+		glColor4f(0.9, 0.7, 0.7, 1);
 	glBindTexture(GL_TEXTURE_2D, mesh->texture);
-
 	glVertexPointer(3, GL_FLOAT, 0, mesh->position);
 	glNormalPointer(GL_FLOAT, 0, mesh->normal);
 	glTexCoordPointer(2, GL_FLOAT, 0, mesh->texcoord);
-
 	glDrawElements(GL_TRIANGLES, mesh->elementcount, GL_UNSIGNED_INT, mesh->element);
 }
 
@@ -351,7 +352,7 @@ void drawnode(struct aiNode *node, struct aiMatrix4x4 world)
 	int i;
 
 	aiMultiplyMatrix4(&world, &node->mTransformation);
-	convertmatrix(mat, &world);
+	transposematrix(mat, &world);
 
 	for (i = 0; i < node->mNumMeshes; i++) {
 		struct mesh *mesh = meshlist + node->mMeshes[i];
@@ -481,10 +482,10 @@ int playing = 1;
 
 unsigned int doplane = 1;
 unsigned int dotexture = 1;
-unsigned int doalpha = 1;
+unsigned int doalpha = 0;
 unsigned int dowire = 0;
 unsigned int docull = 0;
-unsigned int dotwosided = 1;
+unsigned int dotwosided = 0;
 
 int screenw = 800, screenh = 600;
 int mousex, mousey, mouseleft = 0, mousemiddle = 0, mouseright = 0;
@@ -550,7 +551,7 @@ void motion(int x, int y)
 		if (camera.yaw < 0) camera.yaw += 360;
 		if (camera.yaw > 360) camera.yaw -= 360;
 	}
-	if (mouseright) {
+	if (mousemiddle || mouseright) {
 		camera.distance += dy * 0.01 * camera.distance;
 		if (camera.distance < mindist) camera.distance = mindist;
 		if (camera.distance > maxdist) camera.distance = maxdist;
@@ -616,6 +617,7 @@ void reshape(int w, int h)
 
 void display(void)
 {
+	char buf[256];
 	int time, timestep;
 	int i;
 
@@ -737,7 +739,7 @@ void display(void)
 
 	if (doplane) {
 		glBegin(GL_LINES);
-		glColor4f(0.5, 0.5, 0.5, 1);
+		glColor4f(0.4, 0.4, 0.4, 1);
 		for (i = -gridsize; i <= gridsize; i ++) {
 			glVertex3f(i, 0, -gridsize); glVertex3f(i, 0, gridsize);
 			glVertex3f(-gridsize, 0, i); glVertex3f(gridsize, 0, i);
@@ -756,7 +758,6 @@ void display(void)
 
 	glColor4f(1, 1, 1, 1);
 	if (g_scene) {
-		char buf[256];
 		sprintf(buf, "%d meshes; %d vertices; %d faces ", meshcount, vertexcount, facecount);
 		drawstring(8, 18+0, buf);
 		if (curanim) {
@@ -768,9 +769,14 @@ void display(void)
 	}
 	if (curanim)
 		drawstring(10, screenh-10-18, "space to play/pause; [ and ] to change speed; , and . to step");
-	drawstring(10, screenh-10, "w - wireframe; a - transparency; t - textures; p - plane; c - backface; l - two-sided");
+
+	sprintf(buf, "w - wireframe; a - transparency %d; t - textures; p - plane; c - backface; l - two-sided", doalpha);
+	drawstring(10, screenh-10, buf);
 
 	glutSwapBuffers();
+
+	i = glGetError();
+	if (i) fprintf(stderr, "opengl error: %d\n", i);
 }
 
 int main(int argc, char **argv)
@@ -831,7 +837,7 @@ int main(int argc, char **argv)
 	glEnable(GL_MULTISAMPLE);
 	glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
 	glColorMaterial(GL_FRONT_AND_BACK, GL_AMBIENT_AND_DIFFUSE);
-	glClearColor(0.3, 0.3, 0.3, 1);
+	glClearColor(0.22, 0.22, 0.22, 1);
 
 	glutMainLoop();
 
