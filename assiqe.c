@@ -178,7 +178,7 @@ char *node_name(char *orig)
 char *find_material(struct aiMaterial *material)
 {
 	int i, count;
-	char buf[200], *p;
+	char buf[200], shader[200], *p;
 	struct aiString str;
 
 	for (i = 0; i < nummats; i++)
@@ -197,9 +197,20 @@ char *find_material(struct aiMaterial *material)
 		if (!strcmp(matmap[i].file, buf))
 			count++;
 
+	strcpy(shader, "");
+	if (!aiGetMaterialString(material, AI_MATKEY_TEXTURE_SPECULAR(0), &str)) {
+		strcpy(shader, "shiny=");
+		strcat(shader, get_base_name(str.data));
+		p = strrchr(shader, '.');
+		if (p) *p = 0;
+		strcat(shader, "+");
+	}
+
+	// Two-sided isn't supported by COLLADA :(
+
 	matmap[nummats].material = material;
 	strcpy(matmap[nummats].file, buf);
-	sprintf(matmap[nummats].name, "%s,%d", buf, count);
+	sprintf(matmap[nummats].name, "%s%s,%d", shader, buf, count);
 	nummats++;
 
 	p = matmap[nummats-1].name;
@@ -273,7 +284,7 @@ void mark_bone_parents(int i)
 {
 	while (i >= 0) {
 		if (!bonelist[i].isbone)
-			printf("selecting bone %s (parent)\n", bonelist[i].name);
+			fprintf(stderr, "selecting bone %s (parent)\n", bonelist[i].name);
 		bonelist[i].isbone = 1;
 		i = bonelist[i].parent;
 	}
@@ -287,7 +298,7 @@ void mark_tags(void)
 		for (i = 0; i < numbones; i++) {
 			if (!strcmp(taglist[k], node_name(bonelist[i].name))) {
 				if (!bonelist[i].isbone)
-					printf("selecting bone %s (tagged)\n", bonelist[i].name);
+					fprintf(stderr, "selecting bone %s (tagged)\n", bonelist[i].name);
 				bonelist[i].isbone = 1;
 				break;
 			}
