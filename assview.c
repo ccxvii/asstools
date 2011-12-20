@@ -15,6 +15,14 @@
 #define GL_GENERATE_MIPMAP 0x8191
 #endif
 
+#ifndef GL_MULTISAMPLE
+#define GL_MULTISAMPLE 0x809D
+#endif
+
+#ifndef GL_SAMPLE_ALPHA_TO_COVERAGE
+#define GL_SAMPLE_ALPHA_TO_COVERAGE 0x809E
+#endif
+
 #include <assimp.h>
 #include <aiColor4D.h>
 #include <aiConfig.h>
@@ -471,12 +479,12 @@ int animfps = 30, animlen = 0;
 float animtick = 0;
 int playing = 1;
 
-int doplane = 1;
-int dotexture = 1;
-int doalpha = 1;
-int dowire = 0;
-int docull = 0;
-int dotwosided = 1;
+unsigned int doplane = 1;
+unsigned int dotexture = 1;
+unsigned int doalpha = 1;
+unsigned int dowire = 0;
+unsigned int docull = 0;
+unsigned int dotwosided = 1;
 
 int screenw = 800, screenh = 600;
 int mousex, mousey, mouseleft = 0, mousemiddle = 0, mouseright = 0;
@@ -666,7 +674,7 @@ void display(void)
 
 	glLightModeli(GL_LIGHT_MODEL_TWO_SIDE, dotwosided);
 
-	doalpha = doalpha % 4;
+	doalpha = doalpha % 5;
 	switch (doalpha) {
 	// No alpha transparency.
 	case 0:
@@ -709,6 +717,15 @@ void display(void)
 		glDisable(GL_BLEND);
 		glDisable(GL_ALPHA_TEST);
 		break;
+
+	// If we have a multisample buffer, we can get 'perfect' transparency
+	// by using alpha-as-coverage. This does have a few limitations, depending
+	// on the number of samples available you'll get banding or dithering artefacts.
+	case 4:
+		glEnable(GL_SAMPLE_ALPHA_TO_COVERAGE);
+		if (g_scene) drawscene(g_scene);
+		glDisable(GL_SAMPLE_ALPHA_TO_COVERAGE);
+		break;
 	}
 
 	glDisable(GL_CULL_FACE);
@@ -747,8 +764,11 @@ void display(void)
 			drawstring(8, 18+20, buf);
 		}
 	} else {
-		drawstring(10, 25, "No model loaded!");
+		drawstring(10, 18, "No model loaded!");
 	}
+	if (curanim)
+		drawstring(10, screenh-10-18, "space to play/pause; [ and ] to change speed; , and . to step");
+	drawstring(10, screenh-10, "w - wireframe; a - transparency; t - textures; p - plane; c - backface; l - two-sided");
 
 	glutSwapBuffers();
 }
@@ -758,7 +778,7 @@ int main(int argc, char **argv)
 	glutInit(&argc, argv);
 	glutInitWindowPosition(50, 50+24);
 	glutInitWindowSize(screenw, screenh);
-	glutInitDisplayMode(GLUT_RGB | GLUT_DOUBLE | GLUT_DEPTH);
+	glutInitDisplayMode(GLUT_RGB | GLUT_DOUBLE | GLUT_DEPTH | GLUT_MULTISAMPLE);
 	glutCreateWindow("Asset Viewer");
 
 #ifdef __APPLE__
@@ -784,6 +804,8 @@ int main(int argc, char **argv)
 		if (!p) p = strrchr(basedir, '\\');
 		if (!p) strcpy(basedir, ""); else p[1] = 0;
 
+		glutSetWindowTitle(argv[1]);
+
 		g_scene = (struct aiScene*) aiImportFile(argv[1], flags);
 		if (g_scene) {
 			initscene(g_scene);
@@ -806,6 +828,7 @@ int main(int argc, char **argv)
 	glutMotionFunc(motion);
 	glutKeyboardFunc(keyboard);
 
+	glEnable(GL_MULTISAMPLE);
 	glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
 	glColorMaterial(GL_FRONT_AND_BACK, GL_AMBIENT_AND_DIFFUSE);
 	glClearColor(0.3, 0.3, 0.3, 1);
