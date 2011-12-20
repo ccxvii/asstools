@@ -22,7 +22,7 @@ int dorigid = 0; // export rigid (non-deformed) nodes as bones too
 int domesh = 1; // export mesh
 int doanim = 0; // export animations
 int dobone = 0; // export skeleton
-int doflip = 1; // export flipped (quake-style) triangles and normals
+int doflip = 1; // export flipped (quake-style clockwise winding) triangles
 
 // We use %.9g to print floats with 9 digits of precision which
 // is enough to represent a 32-bit float accurately, while still
@@ -698,9 +698,6 @@ void export_node(FILE *out, const struct aiScene *scene, const struct aiNode *no
 				struct aiVector3D vn = mesh->mNormals[k];
 				if (!dobone)
 					aiTransformVecByMatrix3(&vn, &mat3);
-				if (doflip) {
-					vn.x = -vn.x; vn.y = -vn.y; vn.z = -vn.z;
-				}
 				fprintf(out, "vn %.9g %.9g %.9g\n", vn.x, vn.y, vn.z);
 			}
 			if (mesh->mColors[0]) {
@@ -742,7 +739,7 @@ void usage()
 	fprintf(stderr, "\t-a -- only export animations\n");
 	fprintf(stderr, "\t-m -- only export mesh\n");
 	fprintf(stderr, "\t-b -- bake mesh to bind pose / initial frame\n");
-	fprintf(stderr, "\t-f -- don't flip normals and winding order\n");
+	fprintf(stderr, "\t-f -- export counter-clockwise winding triangles\n");
 	fprintf(stderr, "\t-r -- export rigid nodes too (experimental)\n");
 	fprintf(stderr, "\t-o filename -- save output to file\n");
 	exit(1);
