@@ -79,6 +79,7 @@ void export_scene(FILE *out, const struct aiScene *scene, const struct aiNode *n
 		const struct aiMaterial *material = scene->mMaterials[mesh->mMaterialIndex];
 		struct aiString str;
 
+		fprintf(out, "\n");
 		if (node->mNumMeshes > 99)
 			fprintf(out, "g %s,%03d\n", nodename, i);
 		else if (node->mNumMeshes > 9)
@@ -167,7 +168,7 @@ int main(int argc, char **argv)
 		strcpy(objname, basename); strcat(objname, ".obj");
 		strcpy(mtlname, basename); strcat(mtlname, ".mtl");
 
-		printf("loading %s\n", argv[i]);
+		fprintf(stderr, "loading %s\n", argv[i]);
 		scene = aiImportFile(argv[i], flags);
 		if (!scene) {
 			fprintf(stderr, "cannot import '%s'\n", argv[1]);
@@ -180,12 +181,12 @@ int main(int argc, char **argv)
 
 		numvp = numvt = numvn = 1;
 
-		printf("saving %s\n", mtlname);
+		fprintf(stderr, "saving %s\n", mtlname);
 		file = fopen(mtlname, "w");
 		export_materials(file, scene);
 		fclose(file);
 
-		printf("saving %s\n", objname);
+		fprintf(stderr, "saving %s\n", objname);
 		file = fopen(objname, "w");
 		fprintf(file, "# Wavefront Model\n");
 		fprintf(file, "# Created by assobj exporter\n");
