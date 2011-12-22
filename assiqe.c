@@ -394,6 +394,10 @@ int build_bone_list(const struct aiScene *scene)
 		}
 	}
 
+	if (save_all_bones > 1)
+		for (i = 0; i < numbones; i++)
+			bonelist[i].isbone = 1;
+
 	// skip root node if it has 1 child and identity transform
 	int count = 0;
 	for (i = 0; i < numbones; i++)
@@ -751,7 +755,8 @@ void export_node(FILE *out, const struct aiScene *scene, const struct aiNode *no
 void usage()
 {
 	fprintf(stderr, "usage: assiqe [options] [-o out.iqe] input.dae [tags ...]\n");
-	fprintf(stderr, "\t-A -- export all bones (including unused ones)\n");
+	fprintf(stderr, "\t-AA -- export all bones (including unused ones)\n");
+	fprintf(stderr, "\t-A -- export all child bones\n");
 	fprintf(stderr, "\t-a -- only export animations\n");
 	fprintf(stderr, "\t-m -- only export mesh\n");
 	fprintf(stderr, "\t-b -- bake mesh to bind pose / initial frame\n");
@@ -775,7 +780,7 @@ int main(int argc, char **argv)
 
 	while ((c = getopt(argc, argv, "Aabfmo:r")) != -1) {
 		switch (c) {
-		case 'A': save_all_bones = 1; break;
+		case 'A': save_all_bones++; break;
 		case 'a': onlyanim = 1; break;
 		case 'm': onlymesh = 1; break;
 		case 'b': need_to_bake_skin = 1; break;
