@@ -17,6 +17,7 @@
 
 int need_to_bake_skin = 0;
 int save_all_bones = 0;
+int dolowprec = 0;
 
 int dorigid = 0; // export rigid (non-deformed) nodes as bones too
 int domesh = 1; // export mesh
@@ -34,6 +35,8 @@ int doflip = 1; // export flipped (quake-style clockwise winding) triangles
 #define KILL_0(x) (NEAR_0((x)) ? 0 : (x))
 #define KILL_N(x,n) (NEAR_0((x)-(n)) ? (n) : (x))
 #define KILL(x) KILL_0(KILL_N(KILL_N(x, 1), -1))
+
+#define LOWP(x) (roundf(x*32768)/32768)
 
 static struct aiMatrix4x4 yup_to_zup = {
 	1, 0, 0, 0,
@@ -444,15 +447,27 @@ void export_pose(FILE *out, int i)
 	struct aiVector3D scale = bonelist[i].scale;
 	struct aiVector3D translate = bonelist[i].translate;
 
-	if (KILL(scale.x) == 1 && KILL(scale.y) == 1 && KILL(scale.z) == 1)
-		fprintf(out, "pq %.9g %.9g %.9g %.9g %.9g %.9g %.9g\n",
-			KILL_0(translate.x), KILL_0(translate.y), KILL_0(translate.z),
-			(rotate.x), (rotate.y), (rotate.z), (rotate.w));
-	else
-		fprintf(out, "pq %.9g %.9g %.9g %.9g %.9g %.9g %.9g %.9g %.9g %.9g\n",
-			KILL_0(translate.x), KILL_0(translate.y), KILL_0(translate.z),
-			(rotate.x), (rotate.y), (rotate.z), (rotate.w),
-			KILL(scale.x), KILL(scale.y), KILL(scale.z));
+	if (dolowprec) {
+		if (KILL(scale.x) == 1 && KILL(scale.y) == 1 && KILL(scale.z) == 1)
+			fprintf(out, "pq %.9g %.9g %.9g %.9g %.9g %.9g %.9g\n",
+					LOWP(translate.x), LOWP(translate.y), LOWP(translate.z),
+					LOWP(rotate.x), LOWP(rotate.y), LOWP(rotate.z), LOWP(rotate.w));
+		else
+			fprintf(out, "pq %.9g %.9g %.9g %.9g %.9g %.9g %.9g %.9g %.9g %.9g\n",
+					LOWP(translate.x), LOWP(translate.y), LOWP(translate.z),
+					LOWP(rotate.x), LOWP(rotate.y), LOWP(rotate.z), LOWP(rotate.w),
+					LOWP(scale.x), LOWP(scale.y), LOWP(scale.z));
+	} else {
+		if (KILL(scale.x) == 1 && KILL(scale.y) == 1 && KILL(scale.z) == 1)
+			fprintf(out, "pq %.9g %.9g %.9g %.9g %.9g %.9g %.9g\n",
+					KILL_0(translate.x), KILL_0(translate.y), KILL_0(translate.z),
+					(rotate.x), (rotate.y), (rotate.z), (rotate.w));
+		else
+			fprintf(out, "pq %.9g %.9g %.9g %.9g %.9g %.9g %.9g %.9g %.9g %.9g\n",
+					KILL_0(translate.x), KILL_0(translate.y), KILL_0(translate.z),
+					(rotate.x), (rotate.y), (rotate.z), (rotate.w),
+					KILL(scale.x), KILL(scale.y), KILL(scale.z));
+	}
 }
 
 void export_bone_list(FILE *out)
@@ -761,6 +776,7 @@ void usage()
 	fprintf(stderr, "\t-b -- bake mesh to bind pose / initial frame\n");
 	fprintf(stderr, "\t-f -- export counter-clockwise winding triangles\n");
 	fprintf(stderr, "\t-r -- export rigid nodes too (experimental)\n");
+	fprintf(stderr, "\t-l -- low precision mode (for smaller animation files)\n");
 	fprintf(stderr, "\t-o filename -- save output to file\n");
 	exit(1);
 }
@@ -777,7 +793,7 @@ int main(int argc, char **argv)
 	int onlyanim = 0;
 	int onlymesh = 0;
 
-	while ((c = getopt(argc, argv, "Aabfmo:r")) != -1) {
+	while ((c = getopt(argc, argv, "Aabflmo:r")) != -1) {
 		switch (c) {
 		case 'A': save_all_bones++; break;
 		case 'a': onlyanim = 1; break;
@@ -786,6 +802,7 @@ int main(int argc, char **argv)
 		case 'o': output = optarg++; break;
 		case 'f': doflip = 0; break;
 		case 'r': dorigid = 1; break;
+		case 'l': dolowprec = 1; break;
 		default: usage(); break;
 		}
 	}
