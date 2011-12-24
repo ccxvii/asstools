@@ -128,6 +128,7 @@ struct bone {
 	int number; // for iqe export
 	int parent;
 	int isbone;
+	int isskin;
 	int isrigid;
 	struct aiNode *node;
 	struct aiMatrix4x4 invpose; // inv(parent * pose)
@@ -228,14 +229,14 @@ void build_bone_list_from_nodes(struct aiNode *node, int parent)
 	bonelist[numbones].name = node->mName.data;
 	bonelist[numbones].parent = parent;
 	bonelist[numbones].isbone = 0;
+	bonelist[numbones].isskin = 0;
 	bonelist[numbones].isrigid = 0;
 	bonelist[numbones].node = node;
 
-	// all non-bone nodes in our animated models have identity matrix
-	// or are bones with no weights, so don't matter
-	aiIdentityMatrix4(&bonelist[numbones].invpose);
-	aiIdentityMatrix4(&bonelist[numbones].abspose);
+	// these are set in calc_bind_pose and/or apply_initial_frame
 	aiIdentityMatrix4(&bonelist[numbones].pose);
+	aiIdentityMatrix4(&bonelist[numbones].abspose);
+	aiIdentityMatrix4(&bonelist[numbones].invpose);
 
 	parent = numbones++;
 	for (i = 0; i < node->mNumChildren; i++)
@@ -258,7 +259,8 @@ void calc_bind_pose(void)
 	// compute forward abspose and pose matrices here
 	int i;
 	for (i = 0; i < numbones; i++) {
-		if (bonelist[i].isbone) {
+		if (bonelist[i].isskin) {
+			// skinned and boned, invpose is our reference
 			aiInverseMatrix(&bonelist[i].abspose, &bonelist[i].invpose);
 			bonelist[i].pose = bonelist[i].abspose;
 			if (bonelist[i].parent >= 0) {
@@ -267,8 +269,7 @@ void calc_bind_pose(void)
 				bonelist[i].pose = m;
 			}
 		} else {
-			// no inv_bind_pose matrix (so not used by skin)
-			// take the pose from the initial state
+			// not skinned, so no invpose. pose is our reference
 			bonelist[i].pose = bonelist[i].node->mTransformation;
 			bonelist[i].abspose = bonelist[i].pose;
 			if (bonelist[i].parent >= 0) {
@@ -320,6 +321,7 @@ void mark_skinned_bones(const struct aiScene *scene)
 					fprintf(stderr, "selecting bone %s (skinned)\n", bonelist[b].name);
 				bonelist[b].invpose = mesh->mBones[a]->mOffsetMatrix;
 				bonelist[b].isbone = 1;
+				bonelist[b].isskin = 1;
 			} else if (!need_to_bake_skin) {
 				if (memcmp(&bonelist[b].invpose, &mesh->mBones[a]->mOffsetMatrix, sizeof bonelist[b].invpose))
 					need_to_bake_skin = 1;
@@ -368,8 +370,8 @@ int build_bone_list(const struct aiScene *scene)
 
 	build_bone_list_from_nodes(scene->mRootNode, -1);
 
-	if (domesh || save_all_bones)
-		mark_skinned_bones(scene);
+	// we always need the bind pose
+	mark_skinned_bones(scene);
 
 	if (doanim || save_all_bones)
 		mark_animated_bones(scene);
@@ -420,10 +422,7 @@ int build_bone_list(const struct aiScene *scene)
 			bonelist[i].number = number++;
 	fprintf(stderr, "selected %d bones\n", number);
 
-	if (domesh)
-		calc_bind_pose();
-	else
-		apply_initial_frame(); // still need a bind pose
+	calc_bind_pose();
 
 	return number;
 }
@@ -863,9 +862,9 @@ int main(int argc, char **argv)
 	}
 
 	if (domesh) {
-		struct aiMatrix4x4 mat;
-		aiIdentityMatrix4(&mat);
-		export_node(file, scene, scene->mRootNode, mat, "SCENE");
+		struct aiMatrix4x4 identity;
+		aiIdentityMatrix4(&identity);
+		export_node(file, scene, scene->mRootNode, identity, "SCENE");
 	}
 
 	// we always want to export the static initial pose as an animation
