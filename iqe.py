@@ -23,7 +23,7 @@ class Mesh:
 	def save(self, file):
 		print >>file
 		print >>file, "mesh", self.name
-		print >>file, "material", self.material
+		print >>file, "material", "+".join(self.material)
 		for i in xrange(len(self.positions)):
 			xyz = self.positions[i]
 			print >>file, "vp %.9g %.9g %.9g" % xyz
@@ -99,7 +99,7 @@ def load_model(file):
 			mesh = Mesh(line[1])
 			model.meshes.append(mesh)
 		elif line[0] == "material":
-			mesh.material = line[1]
+			mesh.material = line[1].split('+')
 		elif line[0] == "vp":
 			mesh.positions.append(tuple([float(x) for x in line[1:4]]))
 		elif line[0] == "vt":
@@ -124,7 +124,95 @@ def load_model(file):
 			anim.frames.append(pose)
 	return model
 
+
+# Annotate materials with flags from data in .material files.
+
+def load_material(file):
+	annots = {}
+	for line in file.xreadlines():
+		if 'twosided' in line:
+			name = line.split(';')[0]
+			name = name.lower().replace(' ', '_').replace('#', '_')
+			flags = []
+			if 'twosided=true' in line: flags.append('twosided')
+			if 'alphatest=true' in line: flags.append('alphatest')
+			if 'shader=5' in line: flags.append('alphaspec')
+			annots[name] = flags
+	return annots
+
+def annotate_model(model, annots):
+	for mesh in model.meshes:
+		name = mesh.material[0]
+		if name in annots:
+			mesh.material[0:1] = annots[name]
+
+# Create backfacing copies of twosided meshes.
+
+def backface_mesh(mesh):
+	mirror = Mesh(mesh.name + ",backface")
+	mirror.material = mesh.material
+	mirror.positions = mesh.positions
+	mirror.texcoords = mesh.texcoords
+	mirror.colors = mesh.colors
+	mirror.blends = mesh.blends
+	mirror.normals = []
+	for x,y,z in mesh.normals:
+		mirror.normals.append((-x,-y,-z))
+	mirror.faces = []
+	for a,b,c in mesh.faces:
+		mirror.faces.append((c,b,a))
+	return mirror
+
+def backface_model(model):
+	extra = []
+	for mesh in model.meshes:
+		if 'twosided' in mesh.material:
+			mesh.material.remove('twosided')
+			extra.append(backface_mesh(mesh))
+	model.meshes += extra
+
+# Merge meshes with the same material.
+
+def append_mesh(output, mesh):
+	offset = len(output.positions)
+	output.positions += mesh.positions
+	output.texcoords += mesh.texcoords
+	output.normals += mesh.normals
+	output.colors += mesh.colors
+	output.blends += mesh.blends
+	for a,b,c in mesh.faces:
+		output.faces.append((a+offset, b+offset, c+offset))
+
+def merge_meshes(model):
+	map = {}
+	for mesh in model.meshes:
+		key = "+".join(mesh.material)
+		if key in map:
+			map[key] += [mesh]
+		else:
+			map[key] = [mesh]
+	output = []
+	for key in map:
+		if len(map[key]) > 1:
+			material = key.split('+')
+			name = "+".join([x.name for x in map[key]])
+			merged = Mesh(name)
+			merged.material = material
+			for mesh in map[key]:
+				append_mesh(merged, mesh)
+		else:
+			merged = map[key][0]
+		output.append(merged)
+	model.meshes = output
+
+# Default behaviour: process with all passes
+
 if __name__ == "__main__":
-	m = load_model(sys.stdin)
-	m.save(sys.stdout)
+	for filename in sys.argv[1:]:
+		m = load_model(open(filename))
+		a = load_material(open(filename.replace(".iqe", ".material")))
+		annotate_model(m, a)
+		backface_model(m)
+		merge_meshes(m)
+		m.save(sys.stdout)
 
