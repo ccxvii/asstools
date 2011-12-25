@@ -15,6 +15,7 @@
 
 #include "getopt.h"
 
+int verbose = 0;
 int need_to_bake_skin = 0;
 int save_all_bones = 0;
 int dolowprec = 0;
@@ -119,11 +120,11 @@ struct vb {
 
 struct material {
 	struct aiMaterial *material;
-	char file[100];
-	char name[100];
+	char *name;
+	char *shader;
 };
 
-struct material matmap[1000];
+struct material matlist[1000];
 int nummats = 0;
 
 struct bone {
@@ -137,6 +138,8 @@ struct bone {
 	struct aiMatrix4x4 invpose; // inv(parent * pose)
 	struct aiMatrix4x4 abspose; // (parent * pose)
 	struct aiMatrix4x4 pose;
+
+	char *reason; // reason for selecting
 
 	// current pose in decomposed form
 	struct aiVector3D translate;
@@ -164,63 +167,62 @@ char *get_base_name(char *s)
 	return p + 1;
 }
 
-char *node_name(char *orig)
+char *clean_node_name(char *p)
 {
 	static char buf[200];
-	if (orig == buf) return orig; // no need to clean the same name twice (hack!)
-	char *p = orig;
-	if (strstr(orig, "node-") == orig)
-		orig += 5;
-	strcpy(buf, orig);
+	if (strstr(p, "node-") == p)
+		p += 5;
+	strcpy(buf, p);
 	for (p = buf; *p; p++) {
 		*p = tolower(*p);
 		if (*p == ' ') *p = '_';
 	}
-	return buf;
+	return strdup(buf); // leak like a sieve
+}
+
+char *clean_material_name(char *p)
+{
+	static char buf[200];
+	strcpy(buf, p);
+	p = strstr(buf, "-material");
+	if (p) *p = 0;
+	for (p = buf; *p; p++) {
+		*p = tolower(*p);
+		if (*p == ' ') *p = '_';
+		if (*p == '#') *p = '_';
+	}
+	return strdup(buf); // leak like a sieve
 }
 
 char *find_material(struct aiMaterial *material)
 {
-	int i, count;
-	char buf[200], shader[200], *p;
 	struct aiString str;
+	char shader[500], *p;
+	char *name;
+	int i;
 
 	for (i = 0; i < nummats; i++)
-		if (matmap[i].material == material)
-			return matmap[i].name;
+		if (matlist[i].material == material)
+			return matlist[i].shader;
 
+	aiGetMaterialString(material, AI_MATKEY_NAME, &str);
+	name = str.data;
+
+	strcpy(shader, clean_material_name(name));
+	strcat(shader, "+");
 	if (!aiGetMaterialString(material, AI_MATKEY_TEXTURE_DIFFUSE(0), &str))
-		strcpy(buf, get_base_name(str.data));
+		strcat(shader, get_base_name(str.data));
 	else
-		strcpy(buf, "unknown.png");
-	p = strrchr(buf, '.');
+		strcat(shader, "unknown");
+	p = strrchr(shader, '.');
 	if (p) *p = 0;
 
-	count = 0;
-	for (i = 0; i < nummats; i++)
-		if (!strcmp(matmap[i].file, buf))
-			count++;
+	p = shader; while (*p) { *p = tolower(*p); p++; }
 
-	strcpy(shader, "");
-	if (!aiGetMaterialString(material, AI_MATKEY_TEXTURE_SPECULAR(0), &str)) {
-		strcpy(shader, "shiny=");
-		strcat(shader, get_base_name(str.data));
-		p = strrchr(shader, '.');
-		if (p) *p = 0;
-		strcat(shader, "+");
-	}
-
-	// Two-sided isn't supported by COLLADA :(
-
-	matmap[nummats].material = material;
-	strcpy(matmap[nummats].file, buf);
-	sprintf(matmap[nummats].name, "%s%s,%d", shader, buf, count);
-	nummats++;
-
-	p = matmap[nummats-1].name;
-	while (*p) { *p = tolower(*p); p++; }
-
-	return matmap[nummats-1].name;
+	matlist[nummats].name = name;
+	matlist[nummats].material = material;
+	matlist[nummats].shader = strdup(shader);
+	return matlist[nummats++].shader;
 }
 
 // --- figure out which bones are part of armature ---
@@ -231,6 +233,7 @@ void build_bone_list_from_nodes(struct aiNode *node, int parent)
 
 	bonelist[numbones].name = node->mName.data;
 	bonelist[numbones].parent = parent;
+	bonelist[numbones].reason = "<none>";
 	bonelist[numbones].isbone = 0;
 	bonelist[numbones].isskin = 0;
 	bonelist[numbones].isrigid = 0;
@@ -287,9 +290,10 @@ void calc_bind_pose(void)
 void mark_bone_parents(int i)
 {
 	while (i >= 0) {
-		if (!bonelist[i].isbone)
-			fprintf(stderr, "selecting bone %s (parent)\n", bonelist[i].name);
-		bonelist[i].isbone = 1;
+		if (!bonelist[i].isbone) {
+			bonelist[i].reason = "parent";
+			bonelist[i].isbone = 1;
+		}
 		i = bonelist[i].parent;
 	}
 }
@@ -300,15 +304,14 @@ void mark_tags(void)
 	for (k = 0; k < numtags; k++) {
 		fprintf(stderr, "marking tag %s\n", taglist[k]);
 		for (i = 0; i < numbones; i++) {
-			if (!strcmp(taglist[k], node_name(bonelist[i].name))) {
-				if (!bonelist[i].isbone)
-					fprintf(stderr, "selecting bone %s (tagged)\n", bonelist[i].name);
+			if (!strcmp(taglist[k], clean_node_name(bonelist[i].name))) {
+				bonelist[i].reason = "tagged";
 				bonelist[i].isbone = 1;
 				break;
 			}
 		}
 		if (i == numbones)
-			fprintf(stderr, "\tnot found!\n");
+			fprintf(stderr, "\tno match found for tag!\n");
 	}
 }
 
@@ -320,8 +323,7 @@ void mark_skinned_bones(const struct aiScene *scene)
 		for (a = 0; a < mesh->mNumBones; a++) {
 			b = find_bone(mesh->mBones[a]->mName.data);
 			if (!bonelist[b].isbone) {
-				if (!bonelist[b].isbone)
-					fprintf(stderr, "selecting bone %s (skinned)\n", bonelist[b].name);
+				bonelist[b].reason = "skinned";
 				bonelist[b].invpose = mesh->mBones[a]->mOffsetMatrix;
 				bonelist[b].isbone = 1;
 				bonelist[b].isskin = 1;
@@ -340,8 +342,7 @@ void mark_animated_bones(const struct aiScene *scene)
 		const struct aiAnimation *anim = scene->mAnimations[i];
 		for (k = 0; k < anim->mNumChannels; k++) {
 			b = find_bone(anim->mChannels[k]->mNodeName.data);
-			if (!bonelist[b].isbone)
-				fprintf(stderr, "selecting bone %s (animated)\n", bonelist[b].name);
+			bonelist[b].reason = "animated";
 			bonelist[b].isbone = 1;
 		}
 	}
@@ -359,8 +360,7 @@ void mark_rigid_bones(const struct aiScene *scene)
 			}
 		}
 		if (bonelist[i].isrigid) {
-			if (!bonelist[i].isbone)
-				fprintf(stderr, "selecting bone %s (rigid)\n", bonelist[i].name);
+			bonelist[i].reason = "rigid";
 			bonelist[i].isbone = 1;
 		}
 	}
@@ -399,9 +399,12 @@ int build_bone_list(const struct aiScene *scene)
 		}
 	}
 
-	if (save_all_bones > 1)
-		for (i = 0; i < numbones; i++)
+	if (save_all_bones > 1) {
+		for (i = 0; i < numbones; i++) {
+			bonelist[i].reason = "useless";
 			bonelist[i].isbone = 1;
+		}
+	}
 
 	// skip root node if it has 1 child and identity transform
 	int count = 0;
@@ -409,21 +412,21 @@ int build_bone_list(const struct aiScene *scene)
 		if (bonelist[i].isbone && bonelist[i].parent == 0)
 			count++;
 	if (count == 1 && is_identity_matrix(&bonelist[0].node->mTransformation)) {
-		fprintf(stderr, "skipping bone 0 with one child and identity transform\n");
+		bonelist[0].reason = "useless root node";
 		bonelist[0].isbone = 0;
 		bonelist[0].number = -1;
 	}
 
-	for (i = 0; i < numbones; i++)
-		if (!bonelist[i].isbone)
-			fprintf(stderr, "skipping bone %s\n", node_name(bonelist[i].name));
+	if (verbose)
+		for (i = 0; i < numbones; i++)
+			if (bonelist[i].isbone)
+				fprintf(stderr, "selecting %s bone %s\n", bonelist[i].reason, bonelist[i].name);
 
 	// assign IQE numbers to bones
 	number = 0;
 	for (i = 0; i < numbones; i++)
 		if (bonelist[i].isbone)
 			bonelist[i].number = number++;
-	fprintf(stderr, "selected %d bones\n", number);
 
 	calc_bind_pose();
 
@@ -472,19 +475,22 @@ void export_pose(FILE *out, int i)
 
 void export_bone_list(FILE *out)
 {
-	int i;
+	int i, n = 0;
 
 	fprintf(out, "\n");
 	for (i = 0; i < numbones; i++) {
 		if (bonelist[i].isbone) {
+			n++;
 			if (bonelist[i].parent >= 0)
 				fprintf(out, "joint %s %d\n",
-					node_name(bonelist[i].name),
+					clean_node_name(bonelist[i].name),
 					bonelist[bonelist[i].parent].number);
 			else
-				fprintf(out, "joint %s -1\n", node_name(bonelist[i].name));
+				fprintf(out, "joint %s -1\n", clean_node_name(bonelist[i].name));
 		}
 	}
+
+	fprintf(stderr, "exporting skeleton: %d bones\n", n);
 
 	fprintf(out, "\n");
 	for (i = 0; i < numbones; i++) {
@@ -532,6 +538,7 @@ int animation_length(const struct aiAnimation *anim)
 void export_static_animation(FILE *out, const struct aiScene *scene)
 {
 	int i;
+	fprintf(stderr, "exporting animation: static rest pose\n");
 	apply_initial_frame();
 	fprintf(out, "\n");
 	fprintf(out, "\nanimation %s\n", basename);
@@ -555,6 +562,7 @@ void export_animations(FILE *out, const struct aiScene *scene)
 			fprintf(out, "\nanimation %s\n", basename);
 		fprintf(out, "framerate 30\n");
 		len = animation_length(anim);
+		fprintf(stderr, "exporting animation %d: %d frames\n", i+1, len);
 		apply_initial_frame();
 		for (k = 0; k < len; k++)
 			export_frame(out, anim, k);
@@ -655,8 +663,9 @@ void bake_scene_skin(const struct aiScene *scene)
 void export_node(FILE *out, const struct aiScene *scene, const struct aiNode *node,
 	struct aiMatrix4x4 mat, char *nodename)
 {
+	char meshname[200];
 	struct aiMatrix3x3 mat3;
-	int i, k, t, a;
+	int i, a, k, t;
 
 	aiMultiplyMatrix4(&mat, &node->mTransformation);
 	mat3.a1 = mat.a1; mat3.a2 = mat.a2; mat3.a3 = mat.a3;
@@ -666,36 +675,38 @@ void export_node(FILE *out, const struct aiScene *scene, const struct aiNode *no
 	if (!strstr(node->mName.data, "$ColladaAutoName$"))
 		nodename = (char*)node->mName.data;
 
-	nodename = node_name(nodename);
+	nodename = clean_node_name(nodename);
 
 	for (i = 0; i < node->mNumMeshes; i++) {
 		struct aiMesh *mesh = scene->mMeshes[node->mMeshes[i]];
 		struct aiMaterial *material = scene->mMaterials[mesh->mMaterialIndex];
 
 		if (mesh->mNumBones == 0 && dobone && !dorigid) {
-			fprintf(stderr, "skipping rigid mesh %d in node %s (no bones)\n", i, nodename);
+			if (verbose)
+				fprintf(stderr, "skipping rigid mesh %d in node %s (no bones)\n", i, nodename);
 			continue;
 		}
+
+		if (node->mNumMeshes > 99) sprintf(meshname, "%s,%03d", nodename, i);
+		else if (node->mNumMeshes > 9) sprintf(meshname, "%s,%02d", nodename, i);
+		else if (node->mNumMeshes > 1) sprintf(meshname, "%s,%d", nodename, i);
+		else sprintf(meshname, "%s", nodename);
+
+		fprintf(stderr, "exporting mesh %s: %d vertices, %d faces\n",
+				meshname, mesh->mNumVertices, mesh->mNumFaces);
+
+		fprintf(out, "\n");
+		fprintf(out, "mesh %s\n", meshname);
+		fprintf(out, "material %s\n", find_material(material));
 
 		struct vb *vb = (struct vb*) malloc(mesh->mNumVertices * sizeof(*vb));
 		memset(vb, 0, mesh->mNumVertices * sizeof(*vb));
 
-		fprintf(out, "\n");
-		if (node->mNumMeshes > 99)
-			fprintf(out, "mesh %s,%03d\n", nodename, i);
-		else if (node->mNumMeshes > 9)
-			fprintf(out, "mesh %s,%02d\n", nodename, i);
-		else if (node->mNumMeshes > 1)
-			fprintf(out, "mesh %s,%d\n", nodename, i);
-		else
-			fprintf(out, "mesh %s\n", nodename);
-
-		fprintf(out, "material %s\n", find_material(material));
-
 		// A rigidly animated node -- insert fake blend index/weights
 		if (mesh->mNumBones == 0 && dobone) {
 			a = find_bone((char*)node->mName.data);
-			fprintf(stderr, "rigid bone %d for mesh %d in node %s (no bones)\n", bonelist[a].number, i, nodename);
+			if (verbose)
+				fprintf(stderr, "\trigid bone %d for mesh in node %s (no bones)\n", bonelist[a].number, node->mName.data);
 			for (k = 0; k < mesh->mNumVertices; k++) {
 				vb[k].b[0] = bonelist[a].number;
 				vb[k].w[0] = 1;
@@ -754,9 +765,9 @@ void export_node(FILE *out, const struct aiScene *scene, const struct aiNode *no
 			struct aiFace *face = mesh->mFaces + k;
 			assert(face->mNumIndices == 3);
 			if (doflip)
-					fprintf(out, "fm %d %d %d\n", face->mIndices[0], face->mIndices[2], face->mIndices[1]);
+				fprintf(out, "fm %d %d %d\n", face->mIndices[0], face->mIndices[2], face->mIndices[1]);
 			else
-					fprintf(out, "fm %d %d %d\n", face->mIndices[0], face->mIndices[1], face->mIndices[2]);
+				fprintf(out, "fm %d %d %d\n", face->mIndices[0], face->mIndices[1], face->mIndices[2]);
 		}
 
 		free(vb);
@@ -793,7 +804,7 @@ int main(int argc, char **argv)
 	int onlyanim = 0;
 	int onlymesh = 0;
 
-	while ((c = getopt(argc, argv, "Aabflmo:r")) != -1) {
+	while ((c = getopt(argc, argv, "Aabflmo:rv")) != -1) {
 		switch (c) {
 		case 'A': save_all_bones++; break;
 		case 'a': onlyanim = 1; break;
@@ -803,6 +814,7 @@ int main(int argc, char **argv)
 		case 'f': doflip = 0; break;
 		case 'r': dorigid = 1; break;
 		case 'l': dolowprec = 1; break;
+		case 'v': verbose++; break;
 		default: usage(); break;
 		}
 	}
