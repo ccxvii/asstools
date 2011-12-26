@@ -897,10 +897,12 @@ int main(int argc, char **argv)
 	}
 
 	// we always want to export the static initial pose as an animation
-	if (doanim) {
-		export_animations(file, scene);
-	} else {
-		export_static_animation(file, scene);
+	if (dobone) {
+		if (doanim) {
+			export_animations(file, scene);
+		} else {
+			export_static_animation(file, scene);
+		}
 	}
 
 	if (output)
