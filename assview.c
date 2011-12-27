@@ -49,6 +49,28 @@
 
 char basedir[2000];
 
+unsigned char checker_data[256*256];
+unsigned int checker_texture = 0;
+
+void initchecker(void)
+{
+	int x, y, i = 0;
+	for (y = 0; y < 256; y++) {
+		for (x = 0; x < 256; x++) {
+			int k = ((x>>5) & 1) ^ ((y>>5) & 1);
+			checker_data[i++] = k ? 255 : 192;
+		}
+	}
+	glGenTextures(1, &checker_texture);
+	glBindTexture(GL_TEXTURE_2D, checker_texture);
+	glTexParameteri(GL_TEXTURE_2D, GL_GENERATE_MIPMAP, GL_TRUE);
+	glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
+	glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR_MIPMAP_LINEAR);
+	glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_REPEAT);
+	glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_REPEAT);
+	glTexImage2D(GL_TEXTURE_2D, 0, 1, 256, 256, 0, GL_LUMINANCE, GL_UNSIGNED_BYTE, checker_data);
+}
+
 void lowerstring(char *s)
 {
 	while (*s) { *s = tolower(*s); s++; }
@@ -338,11 +360,13 @@ void initscene(struct aiScene *scene)
 
 void drawmesh(struct mesh *mesh)
 {
-	if (mesh->texture > 0)
+	if (mesh->texture > 0) {
 		glColor4f(1, 1, 1, 1);
-	else
+		glBindTexture(GL_TEXTURE_2D, mesh->texture);
+	} else {
 		glColor4f(0.9, 0.7, 0.7, 1);
-	glBindTexture(GL_TEXTURE_2D, mesh->texture);
+		glBindTexture(GL_TEXTURE_2D, checker_texture);
+	}
 	glVertexPointer(3, GL_FLOAT, 0, mesh->position);
 	glNormalPointer(GL_FLOAT, 0, mesh->normal);
 	glTexCoordPointer(2, GL_FLOAT, 0, mesh->texcoord);
@@ -513,13 +537,14 @@ int animfps = 30, animlen = 0;
 float animtick = 0;
 int playing = 1;
 
-unsigned int doplane = 0;
-unsigned int dotexture = 1;
-unsigned int doalpha = 0;
-unsigned int dowire = 0;
-unsigned int docull = 0;
-unsigned int dotwosided = 1;
-unsigned int doperspective = 1;
+int showhelp = 0;
+int doplane = 1;
+int dotexture = 1;
+int doalpha = 0;
+int dowire = 0;
+int dobackface = 1;
+int dotwosided = 1;
+int doperspective = 1;
 
 int screenw = 800, screenh = 600;
 int mousex, mousey, mouseleft = 0, mousemiddle = 0, mouseright = 0;
@@ -566,7 +591,8 @@ void drawstring(float x, float y, char *s)
 {
 	glRasterPos2f(x+0.375, y+0.375);
 	while (*s)
-		glutBitmapCharacter(GLUT_BITMAP_HELVETICA_12, *s++);
+		//glutBitmapCharacter(GLUT_BITMAP_HELVETICA_12, *s++);
+		glutBitmapCharacter(GLUT_BITMAP_8_BY_13, *s++);
 }
 
 void mouse(int button, int state, int x, int y)
@@ -622,11 +648,12 @@ void keyboard(unsigned char key, int x, int y)
 {
 	switch (key) {
 	case 27: case 'q': exit(1); break;
+	case 'h': case '?': showhelp = !showhelp; break;
 	case 'f': togglefullscreen(); break;
-	case '0': animtick = 0; animfps = 30; break;
 	case 'i': doperspective = 0; camera.yaw = 45; camera.pitch = -DIMETRIC; break;
 	case 'I': doperspective = 0; camera.yaw = 45; camera.pitch = -ISOMETRIC; break;
-	case 'r': doperspective = !doperspective; break;
+	case 'p': doperspective = !doperspective; break;
+	case '0': animtick = 0; animfps = 30; break;
 	case '1': case '2': case '3': case '4':
 	case '5': case '6': case '7': case '8':
 	case '9': setanim(key - '1'); break;
@@ -635,18 +662,27 @@ void keyboard(unsigned char key, int x, int y)
 	case ',': animtick = floor(animtick) - 1; break;
 	case '[': animfps = MAX(5, animfps-5); break;
 	case ']': animfps = MIN(60, animfps+5); break;
-	case 'p': doplane = !doplane; break;
+	case 'g': doplane = !doplane; break;
 	case 't': dotexture = !dotexture; break;
 	case 'A': doalpha--; break;
 	case 'a': doalpha++; break;
 	case 'w': dowire = !dowire; break;
-	case 'c': docull = !docull; break;
+	case 'b': dobackface = !dobackface; break;
 	case 'l': dotwosided = !dotwosided; break;
 	}
 
 	if (playing)
 		lasttime = glutGet(GLUT_ELAPSED_TIME);
 
+	glutPostRedisplay();
+}
+
+void special(int key, int x, int y)
+{
+	switch (key) {
+	case GLUT_KEY_F4: exit(1); break;
+	case GLUT_KEY_F1: showhelp = !showhelp; break;
+	}
 	glutPostRedisplay();
 }
 
@@ -713,10 +749,10 @@ void display(void)
 	else
 		glPolygonMode(GL_FRONT_AND_BACK, GL_FILL);
 
-	if (docull)
-		glEnable(GL_CULL_FACE);
-	else
+	if (dobackface)
 		glDisable(GL_CULL_FACE);
+	else
+		glEnable(GL_CULL_FACE);
 
 	glLightModeli(GL_LIGHT_MODEL_TWO_SIDE, dotwosided);
 
@@ -809,13 +845,28 @@ void display(void)
 			drawstring(8, 18+20, buf);
 		}
 	} else {
-		drawstring(10, 18, "No model loaded!");
+		drawstring(8, 18, "No model loaded!");
 	}
-	if (curanim)
-		drawstring(10, screenh-10-18, "space to play/pause; [ and ] to change speed; , and . to step");
 
-	sprintf(buf, "w - wireframe; a - transparency %d; t - textures; p - plane; c - backface; l - two-sided; r/i - perspective", doalpha);
-	drawstring(10, screenh-10, buf);
+	if (showhelp) {
+		#define Y(n) 18+40+n*16
+		glColor4f(1, 1, 0.5, 1);
+		drawstring(8, Y(0), "a - change transparency mode");
+		drawstring(8, Y(1), "t - toggle textures");
+		drawstring(8, Y(2), "w - toggle wireframe");
+		drawstring(8, Y(3), "b - toggle backface culling");
+		drawstring(8, Y(4), "l - toggle two-sided lighting");
+		drawstring(8, Y(5), "g - toggle ground plane");
+		drawstring(8, Y(6), "p - toggle orthogonal/perspective camera");
+		drawstring(8, Y(7), "i - set up dimetric camera (2:1)");
+		drawstring(8, Y(8), "I - set up isometric camera");
+
+		if (1|| curanim) {
+			drawstring(8, Y(10), "space - play/pause animation");
+			drawstring(8, Y(11), "[ and ] - change animation playback speed");
+			drawstring(8, Y(12), ", and . - single step animation");
+		}
+	}
 
 	glutSwapBuffers();
 
@@ -836,6 +887,8 @@ int main(int argc, char **argv)
 	void *ctx = CGLGetCurrentContext();
 	CGLSetParameter(ctx, kCGLCPSwapInterval, &one);
 #endif
+
+	initchecker();
 
 	if (argc > 1) {
 		int flags = aiProcess_Triangulate;
@@ -877,6 +930,7 @@ int main(int argc, char **argv)
 	glutMouseFunc(mouse);
 	glutMotionFunc(motion);
 	glutKeyboardFunc(keyboard);
+	glutSpecialFunc(special);
 
 	glEnable(GL_MULTISAMPLE);
 	glEnable(GL_NORMALIZE);
