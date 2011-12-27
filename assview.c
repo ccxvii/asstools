@@ -388,30 +388,60 @@ void drawscene(struct aiScene *scene)
 	glDisableClientState(GL_NORMAL_ARRAY);
 }
 
-float measurescene(float center[3])
+void measuremesh(struct mesh *mesh, struct aiMatrix4x4 transform, float bboxmin[3], float bboxmax[3])
 {
+	struct aiVector3D p;
+	int i;
+	for (i = 0; i < mesh->vertexcount; i++) {
+		p.x = mesh->position[i*3+0];
+		p.y = mesh->position[i*3+1];
+		p.z = mesh->position[i*3+2];
+		aiTransformVecByMatrix4(&p, &transform);
+		bboxmin[0] = MIN(bboxmin[0], p.x);
+		bboxmin[1] = MIN(bboxmin[1], p.y);
+		bboxmin[2] = MIN(bboxmin[2], p.z);
+		bboxmax[0] = MAX(bboxmax[0], p.x);
+		bboxmax[1] = MAX(bboxmax[1], p.y);
+		bboxmax[2] = MAX(bboxmax[2], p.z);
+	}
+}
+
+void measurenode(struct aiNode *node, struct aiMatrix4x4 world, float bboxmin[3], float bboxmax[3])
+{
+	struct aiMatrix4x4 identity;
+	int i;
+
+	aiMultiplyMatrix4(&world, &node->mTransformation);
+	aiIdentityMatrix4(&identity);
+
+	for (i = 0; i < node->mNumMeshes; i++) {
+		struct mesh *mesh = meshlist + node->mMeshes[i];
+		if (mesh->mesh->mNumBones == 0) {
+			// non-skinned meshes are in node-local space
+			measuremesh(mesh, world, bboxmin, bboxmax);
+		} else {
+			// skinned meshes are already in world space
+			measuremesh(mesh, identity, bboxmin, bboxmax);
+		}
+	}
+
+	for (i = 0; i < node->mNumChildren; i++)
+		measurenode(node->mChildren[i], world, bboxmin, bboxmax);
+}
+
+float measurescene(struct aiScene *scene, float center[3])
+{
+	struct aiMatrix4x4 world;
 	float bboxmin[3];
 	float bboxmax[3];
 	float dx, dy, dz;
-	int i, k;
 
-	bboxmin[0] = bboxmax[0] = meshlist[0].position[0];
-	bboxmin[1] = bboxmax[1] = meshlist[0].position[1];
-	bboxmin[2] = bboxmax[2] = meshlist[0].position[2];
+	bboxmin[0] = 1e10; bboxmax[0] = -1e10;
+	bboxmin[1] = 1e10; bboxmax[1] = -1e10;
+	bboxmin[2] = 1e10; bboxmax[2] = -1e10;
 
-	for (k = 0; k < meshcount; k++) {
-		for (i = 0; i < meshlist[k].vertexcount; i++) {
-			float x = meshlist[k].position[i*3+0];
-			float y = meshlist[k].position[i*3+1];
-			float z = meshlist[k].position[i*3+2];
-			bboxmin[0] = MIN(bboxmin[0], x);
-			bboxmin[1] = MIN(bboxmin[1], y);
-			bboxmin[2] = MIN(bboxmin[2], z);
-			bboxmax[0] = MAX(bboxmax[0], x);
-			bboxmax[1] = MAX(bboxmax[1], y);
-			bboxmax[2] = MAX(bboxmax[2], z);
-		}
-	}
+	aiIdentityMatrix4(&world);
+	measurenode(scene->mRootNode, world, bboxmin, bboxmax);
 
 	center[0] = (bboxmin[0] + bboxmax[0]) / 2;
 	center[1] = (bboxmin[1] + bboxmax[1]) / 2;
@@ -480,12 +510,12 @@ int animfps = 30, animlen = 0;
 float animtick = 0;
 int playing = 1;
 
-unsigned int doplane = 1;
+unsigned int doplane = 0;
 unsigned int dotexture = 1;
 unsigned int doalpha = 0;
 unsigned int dowire = 0;
 unsigned int docull = 0;
-unsigned int dotwosided = 0;
+unsigned int dotwosided = 1;
 
 int screenw = 800, screenh = 600;
 int mousex, mousey, mouseleft = 0, mousemiddle = 0, mouseright = 0;
@@ -676,7 +706,7 @@ void display(void)
 
 	glLightModeli(GL_LIGHT_MODEL_TWO_SIDE, dotwosided);
 
-	doalpha = doalpha % 5;
+	doalpha = CLAMP(doalpha, 0, 4);
 	switch (doalpha) {
 	// No alpha transparency.
 	case 0:
@@ -816,7 +846,7 @@ int main(int argc, char **argv)
 		if (g_scene) {
 			initscene(g_scene);
 
-			float radius = measurescene(camera.center);
+			float radius = measurescene(g_scene, camera.center);
 			camera.distance = radius * 2;
 			gridsize = (int)radius + 1;
 			mindist = radius * 0.1;
@@ -835,6 +865,7 @@ int main(int argc, char **argv)
 	glutKeyboardFunc(keyboard);
 
 	glEnable(GL_MULTISAMPLE);
+	glEnable(GL_NORMALIZE);
 	glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
 	glColorMaterial(GL_FRONT_AND_BACK, GL_AMBIENT_AND_DIFFUSE);
 	glClearColor(0.22, 0.22, 0.22, 1);
