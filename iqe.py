@@ -139,7 +139,7 @@ def make_material(mat):
 	list = []
 	if 'twosided' in mat: list += ['twosided']
 	if 'alphatest' in mat: list += ['alphatest']
-	if 'alphaspec' in mat: list += ['alphaspec']
+	if 'alphagloss' in mat: list += ['alphagloss']
 	if 'unlit' in mat: list += ['unlit']
 	if 'diffuse.file' in mat: list += [mat['diffuse.file']]
 	else: list += ["unknown"]
@@ -166,7 +166,7 @@ def load_material(file):
 			key, val = line.split('=', 1)
 			if key == 'bTwoSided' and val == 'true': mat['twosided'] = True
 			if key == 'bAlphaTest' and val == 'true': mat['alphatest'] = True
-			if key == 'iShaderType' and val == '5': mat['alphaspec'] = True
+			if key == 'iShaderType' and val == '5': mat['alphagloss'] = True
 			if key == 'bUnlighted' and val == 'true': mat['unlit'] = True
 			if key == 'bitmap1FileName' and val: mat[tex+".file1"] = basename(val)
 			if key == 'bitmap2FileName' and val: mat[tex+".file2"] = basename(val)
