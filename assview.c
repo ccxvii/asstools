@@ -34,7 +34,10 @@
 
 #define MIN(a,b) ((a) < (b) ? (a) : (b))
 #define MAX(a,b) ((a) > (b) ? (a) : (b))
-#define CLAMP(x,a,b) MIN(MAX(x,b),a)
+#define CLAMP(x,a,b) MIN(MAX(x,a),b)
+
+#define ISOMETRIC 35.264	// true isometric view
+#define DIMETRIC 30		// 2:1 'isometric' as seen in pixel art
 
 /*
  * Use Sean Barrett's excellent stb_image to load textures.
@@ -516,6 +519,7 @@ unsigned int doalpha = 0;
 unsigned int dowire = 0;
 unsigned int docull = 0;
 unsigned int dotwosided = 1;
+unsigned int doperspective = 1;
 
 int screenw = 800, screenh = 600;
 int mousex, mousey, mouseleft = 0, mousemiddle = 0, mouseright = 0;
@@ -531,7 +535,7 @@ struct {
 	float yaw;
 	float pitch;
 	float center[3];
-} camera = { 3, 0, -30, { 0, 1, 0 } };
+} camera = { 3, 45, -DIMETRIC, { 0, 1, 0 } };
 
 void setanim(int i)
 {
@@ -551,6 +555,11 @@ void perspective(float fov, float aspect, float znear, float zfar)
 	fov = fov * 3.14159 / 360.0;
 	fov = tan(fov) * znear;
 	glFrustum(-fov * aspect, fov * aspect, -fov, fov, znear, zfar);
+}
+
+void orthogonal(float fov, float aspect, float znear, float zfar)
+{
+	glOrtho(-fov * aspect, fov * aspect, -fov, fov, znear, zfar);
 }
 
 void drawstring(float x, float y, char *s)
@@ -614,11 +623,14 @@ void keyboard(unsigned char key, int x, int y)
 	switch (key) {
 	case 27: case 'q': exit(1); break;
 	case 'f': togglefullscreen(); break;
+	case '0': animtick = 0; animfps = 30; break;
+	case 'i': doperspective = 0; camera.yaw = 45; camera.pitch = -DIMETRIC; break;
+	case 'I': doperspective = 0; camera.yaw = 45; camera.pitch = -ISOMETRIC; break;
+	case 'r': doperspective = !doperspective; break;
 	case '1': case '2': case '3': case '4':
 	case '5': case '6': case '7': case '8':
 	case '9': setanim(key - '1'); break;
 	case ' ': playing = !playing; break;
-	case '0': animtick = 0; animfps = 30; break;
 	case '.': animtick = floor(animtick) + 1; break;
 	case ',': animtick = floor(animtick) - 1; break;
 	case '[': animfps = MAX(5, animfps-5); break;
@@ -671,8 +683,10 @@ void display(void)
 
 	glMatrixMode(GL_PROJECTION);
 	glLoadIdentity();
-	perspective(60, (float)screenw/screenh, mindist/5, maxdist*5);
-	//glOrtho(-camera.distance, camera.distance, -camera.distance, camera.distance, -maxdist*5, maxdist*5);
+	if (doperspective)
+		perspective(50, (float)screenw/screenh, mindist/5, maxdist*5);
+	else
+		orthogonal(camera.distance/2, (float)screenw/screenh, mindist/5, maxdist*5);
 
 	glMatrixMode(GL_MODELVIEW);
 	glLoadIdentity();
@@ -800,7 +814,7 @@ void display(void)
 	if (curanim)
 		drawstring(10, screenh-10-18, "space to play/pause; [ and ] to change speed; , and . to step");
 
-	sprintf(buf, "w - wireframe; a - transparency %d; t - textures; p - plane; c - backface; l - two-sided", doalpha);
+	sprintf(buf, "w - wireframe; a - transparency %d; t - textures; p - plane; c - backface; l - two-sided; r/i - perspective", doalpha);
 	drawstring(10, screenh-10, buf);
 
 	glutSwapBuffers();
