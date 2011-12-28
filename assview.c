@@ -36,15 +36,11 @@
 #define MAX(a,b) ((a) > (b) ? (a) : (b))
 #define CLAMP(x,a,b) MIN(MAX(x,a),b)
 
-#define ISOMETRIC 35.264	// true isometric view
-#define DIMETRIC 30		// 2:1 'isometric' as seen in pixel art
-
 /*
  * Use Sean Barrett's excellent stb_image to load textures.
  */
 
 #define STBI_NO_HDR
-#define STBI_NO_WRITE
 #include "stb_image.c"
 
 char basedir[2000];
@@ -530,6 +526,11 @@ void animatescene(struct aiScene *scene, struct aiAnimation *anim, float tick)
  * Boring UI and GLUT hooks.
  */
 
+#include "getopt.c"
+
+#define ISOMETRIC 35.264	// true isometric view
+#define DIMETRIC 30		// 2:1 'isometric' as seen in pixel art
+
 struct aiScene *g_scene = NULL;
 int lasttime = 0;
 struct aiAnimation *curanim = NULL;
@@ -537,11 +538,12 @@ int animfps = 30, animlen = 0;
 float animtick = 0;
 int playing = 1;
 
+int offscreen = 0;
 int showhelp = 0;
-int doplane = 1;
-int dotexture = 1;
+int doplane = 0;
 int doalpha = 0;
 int dowire = 0;
+int dotexture = 1;
 int dobackface = 1;
 int dotwosided = 1;
 int doperspective = 1;
@@ -833,6 +835,10 @@ void display(void)
 	glLoadIdentity();
 	glOrtho(0, screenw, screenh, 0, -1, 1);
 
+	// don't render UI and don't swap buffers if drawing to offscreen buffer
+	if (offscreen)
+		return;
+
 	glMatrixMode(GL_MODELVIEW);
 	glLoadIdentity();
 
@@ -874,13 +880,108 @@ void display(void)
 	if (i) fprintf(stderr, "opengl error: %d\n", i);
 }
 
+// render to offscreen framebuffer object
+void renderppm(int w, int h, FILE *output)
+{
+	unsigned int fbo;
+	unsigned int colorbuffer, depthbuffer;
+
+	glGenFramebuffers(1, &fbo);
+	glBindFramebuffer(GL_FRAMEBUFFER, fbo);
+
+	glGenRenderbuffers(1, &colorbuffer);
+	glBindRenderbuffer(GL_RENDERBUFFER, colorbuffer);
+	glRenderbufferStorage(GL_RENDERBUFFER, GL_RGB8, w, h);
+
+	glGenRenderbuffers(1, &depthbuffer);
+	glBindRenderbuffer(GL_RENDERBUFFER, depthbuffer);
+	glRenderbufferStorage(GL_RENDERBUFFER, GL_DEPTH_COMPONENT24, w, h);
+
+	glFramebufferRenderbuffer(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, GL_RENDERBUFFER, colorbuffer);
+	glFramebufferRenderbuffer(GL_FRAMEBUFFER, GL_DEPTH_ATTACHMENT, GL_RENDERBUFFER, depthbuffer);
+
+	int status = glCheckFramebufferStatus(GL_FRAMEBUFFER);
+	if (status != GL_FRAMEBUFFER_COMPLETE) {
+		fprintf(stderr, "damn! no fbo.\n");
+		exit(1);
+	}
+
+	offscreen = 1;
+	reshape(w, h);
+	display();
+
+	unsigned char *data = malloc(w * h * 3);
+	glReadPixels(0, 0, w, h, GL_RGB, GL_UNSIGNED_BYTE, data);
+
+	fprintf(output, "P6\n");
+	fprintf(output, "%d %d\n", w, h);
+	fprintf(output, "255\n");
+
+	int y = 0;
+	for (y = 0; y < h; y++)
+		fwrite(data + (h-y-1) * 3 * w, 3, w, output);
+
+	glBindFramebuffer(GL_FRAMEBUFFER, 0);
+
+	glDeleteFramebuffers(1, &fbo);
+	glDeleteRenderbuffers(1, &colorbuffer);
+	glDeleteRenderbuffers(1, &depthbuffer);
+}
+
+void usage(void)
+{
+	fprintf(stderr, "usage: assview [-geometry WxH] [options] asset.dae\n");
+	fprintf(stderr, "\t-o\twrite PPM on stdout and quit\n");
+	fprintf(stderr, "\t-i\tdimetric (2:1) camera\n");
+	fprintf(stderr, "\t-I\ttrue isometric camera\n");
+	fprintf(stderr, "\t-a\talpha transparency mode; use more times for higher quality.\n");
+	fprintf(stderr, "\t-b\tdon't render backfaces\n");
+	fprintf(stderr, "\t-g\trender ground plane\n");
+	fprintf(stderr, "\t-l\tone-sided lighting\n");
+	fprintf(stderr, "\t-t\tdon't render textures\n");
+	fprintf(stderr, "\t-w\trender wireframe\n");
+	fprintf(stderr, "\t-c r,g,b\tbackground color\n");
+	fprintf(stderr, "\t-r n\trotate camera n degrees (yaw)\n");
+	fprintf(stderr, "\t-p n\tpitch camera n degrees\n");
+	fprintf(stderr, "\t-z n\tzoom camera n times\n");
+	fprintf(stderr, "\t-f n\trender animation at frame n\n");
+	exit(1);
+}
+
 int main(int argc, char **argv)
 {
-	glutInit(&argc, argv);
+	float clearcolor[4] = { 0.22, 0.22, 0.22, 1.0 };
+	float zoom = 1;
+	int c;
+
 	glutInitWindowPosition(50, 50+24);
 	glutInitWindowSize(screenw, screenh);
+	glutInit(&argc, argv);
 	glutInitDisplayMode(GLUT_RGB | GLUT_DOUBLE | GLUT_DEPTH | GLUT_MULTISAMPLE);
+
+	while ((c = getopt(argc, argv, "oiIgtawblc:r:p:z:f:")) != -1) {
+		switch (c) {
+		case 'o': offscreen = 1; playing = 0; break;
+		case 'i': doperspective = 0; camera.yaw = 45; camera.pitch = -DIMETRIC; break;
+		case 'I': doperspective = 0; camera.yaw = 45; camera.pitch = -ISOMETRIC; break;
+		case 'g': doplane = 1; break;
+		case 't': dotexture = 0; break;
+		case 'a': doalpha++; break;
+		case 'w': dowire = 1; break;
+		case 'b': dobackface = 0; break;
+		case 'l': dotwosided = 0; break;
+		case 'c': sscanf(optarg, "%g,%g,%g", clearcolor+0, clearcolor+1, clearcolor+2); break;
+		case 'r': camera.yaw = atof(optarg); break;
+		case 'p': camera.pitch = atof(optarg); break;
+		case 'z': zoom = atof(optarg); break;
+		case 'f': animtick = atof(optarg); break;
+		default: usage(); break;
+		}
+	}
+
 	glutCreateWindow("Asset Viewer");
+	screenw = glutGet(GLUT_WINDOW_WIDTH);
+	screenh = glutGet(GLUT_WINDOW_HEIGHT);
 
 #ifdef __APPLE__
 	int one = 1;
@@ -890,7 +991,7 @@ int main(int argc, char **argv)
 
 	initchecker();
 
-	if (argc > 1) {
+	if (optind < argc) {
 		int flags = aiProcess_Triangulate;
 		flags |= aiProcess_JoinIdenticalVertices;
 		flags |= aiProcess_GenSmoothNormals;
@@ -909,12 +1010,12 @@ int main(int argc, char **argv)
 
 		glutSetWindowTitle(argv[1]);
 
-		g_scene = (struct aiScene*) aiImportFile(argv[1], flags);
+		g_scene = (struct aiScene*) aiImportFile(argv[optind], flags);
 		if (g_scene) {
 			initscene(g_scene);
 
 			float radius = measurescene(g_scene, camera.center);
-			camera.distance = radius * 2;
+			camera.distance = radius * 2 * zoom;
 			gridsize = (int)radius + 1;
 			mindist = radius * 0.1;
 			maxdist = radius * 10;
@@ -925,19 +1026,23 @@ int main(int argc, char **argv)
 		}
 	}
 
+	glEnable(GL_MULTISAMPLE);
+	glEnable(GL_NORMALIZE);
+	glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
+	glColorMaterial(GL_FRONT_AND_BACK, GL_AMBIENT_AND_DIFFUSE);
+	glClearColor(clearcolor[0], clearcolor[1], clearcolor[2], clearcolor[3]);
+
+	if (offscreen) {
+		renderppm(screenw, screenh, stdout);
+		return 0;
+	}
+
 	glutReshapeFunc(reshape);
 	glutDisplayFunc(display);
 	glutMouseFunc(mouse);
 	glutMotionFunc(motion);
 	glutKeyboardFunc(keyboard);
 	glutSpecialFunc(special);
-
-	glEnable(GL_MULTISAMPLE);
-	glEnable(GL_NORMALIZE);
-	glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
-	glColorMaterial(GL_FRONT_AND_BACK, GL_AMBIENT_AND_DIFFUSE);
-	glClearColor(0.22, 0.22, 0.22, 1);
-
 	glutMainLoop();
 
 	return 0;
