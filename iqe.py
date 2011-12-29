@@ -27,16 +27,16 @@ class Mesh:
 		for i in xrange(len(self.positions)):
 			xyz = self.positions[i]
 			print >>file, "vp %.9g %.9g %.9g" % xyz
-			if len(self.texcoords):
+			if len(self.texcoords) == len(self.positions):
 				xy = self.texcoords[i]
 				print >>file, "vt %.9g %.9g" % xy
-			if len(self.normals):
+			if len(self.normals) == len(self.positions):
 				xyz = self.normals[i]
 				print >>file, "vn %.9g %.9g %.9g" % xyz
-			if len(self.colors):
+			if len(self.colors) == len(self.positions):
 				xyzw = self.colors[i]
 				print >>file, "vc %.9g %.9g %.9g %.9g" % xyzw
-			if len(self.blends):
+			if len(self.blends) == len(self.positions):
 				blend = self.blends[i]
 				print >>file, "vb", " ".join(["%.9g" % x for x in blend])
 		for face in self.faces:
@@ -141,6 +141,10 @@ def make_material(mat):
 	if 'alphatest' in mat: list += ['alphatest']
 	if 'alphagloss' in mat: list += ['alphagloss']
 	if 'unlit' in mat: list += ['unlit']
+	if 'clipu' in mat: list += ['clipu=%g' % mat['clipu']]
+	if 'clipv' in mat: list += ['clipv=%g' % mat['clipv']]
+	if 'clipw' in mat: list += ['clipw=%g' % mat['clipw']]
+	if 'cliph' in mat: list += ['cliph=%g' % mat['cliph']]
 	if 'diffuse.file' in mat: list += [mat['diffuse.file']]
 	else: list += ["unknown"]
 	return list
@@ -161,11 +165,13 @@ def load_material(file):
 		elif line.startswith("texture 2"):
 			tex = "specular"
 		elif line.startswith("texture "):
-			tex = "texture" + line.split(' ')[2]
+			tex = "texture" + line.split(' ')[1]
 		elif '=' in line:
 			key, val = line.split('=', 1)
+			if key == 'twoSided' and val == 'true': mat['twosided'] = True
 			if key == 'bTwoSided' and val == 'true': mat['twosided'] = True
 			if key == 'bAlphaTest' and val == 'true': mat['alphatest'] = True
+			if key == 'bAlphaBlend' and val == 'true': mat['alphatest'] = True
 			if key == 'iShaderType' and val == '5': mat['alphagloss'] = True
 			if key == 'bUnlighted' and val == 'true': mat['unlit'] = True
 			if key == 'bitmap1FileName' and val: mat[tex+".file1"] = basename(val)
@@ -177,6 +183,10 @@ def load_material(file):
 			if key == 'bitmap7FileName' and val: mat[tex+".file7"] = basename(val)
 			if key == 'bitmap8FileName' and val: mat[tex+".file8"] = basename(val)
 			if key == 'bitmap.filename' and val: mat[tex+".file"] = basename(val)
+			if key == 'bitmap.clipu' and float(val) != 0: mat['clipu'] = float(val)
+			if key == 'bitmap.clipv' and float(val) != 0: mat['clipv'] = float(val)
+			if key == 'bitmap.clipw' and float(val) != 1: mat['clipw'] = float(val)
+			if key == 'bitmap.cliph' and float(val) != 1: mat['cliph'] = float(val)
 	print >>sys.stderr, lib
 	return lib
 
@@ -184,7 +194,7 @@ def annotate_model(model, annots):
 	for mesh in model.meshes:
 		name = mesh.material[0]
 		if name in annots:
-			mesh.material[0:1] = make_material(annots[name])
+			mesh.material = make_material(annots[name])
 
 # Create backfacing copies of twosided meshes.
 
@@ -211,6 +221,39 @@ def backface_model(model):
 			mesh.material.remove('twosided')
 			extra.append(backface_mesh(mesh))
 	model.meshes += extra
+
+# Fix UV coords that have a clip region set. Ugh.
+# We can offset the origin, but then the repeat/wrapping fails.
+# We can offset the origin, and wrap the U/V coords, but then it wraps
+# the wrong way.
+# We can remap the uv space, but then we have to extract the cropped region
+# of the texture as a separate texture.
+
+def clipuv_mesh(mesh, uofs, vofs, w, h):
+	print >>sys.stderr, "clipuv", mesh.name, uofs, vofs, w, h
+	newtc = []
+	for u,v in mesh.texcoords:
+		#if u > w: u -= w
+		#if v > h: v -= h
+		u += uofs;
+		v += vofs;
+		#u = u / w
+		#v = v / h
+		newtc.append((u, v))
+	mesh.texcoords = newtc
+
+def clipuv_model(model):
+	for mesh in model.meshes:
+		u = v = 0
+		w = h = 1
+		ua = va = wa = ha = None
+		for a in mesh.material:
+			if a.startswith('clipu='): u = float(a.split('=')[1]); ua = a
+			if a.startswith('clipv='): v = float(a.split('=')[1]); va = a
+			if a.startswith('clipw='): w = float(a.split('=')[1]); wa = a
+			if a.startswith('cliph='): h = float(a.split('=')[1]); ha = a
+		if u != 0 or v != 0 or w != 1 or h != 1:
+			clipuv_mesh(mesh, u, v, w, h)
 
 # Merge meshes with the same material.
 
