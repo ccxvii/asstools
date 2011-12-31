@@ -7,7 +7,7 @@
 #	no custom vertex array types
 #	no comment sections
 
-import sys, fnmatch
+import sys, shlex, fnmatch
 
 class Mesh:
 	def __init__(self, name):
@@ -87,8 +87,8 @@ def load_model(file):
 	pose = model.bindpose
 	anim = None
 	for line in file.xreadlines():
-		line = line.split()
-		if len(line) == 0 or line[0] == "#":
+		line = shlex.split(line, "#")
+		if len(line) == 0:
 			pass
 		elif line[0] == "joint":
 			name = line[1]
