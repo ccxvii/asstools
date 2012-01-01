@@ -6,7 +6,7 @@ bl_info = {
 	"version": (0, 1),
 	"blender": (2, 6, 0),
 	"location": "File > Import > Inter-Quake Model",
-	"description": "Import IQM or IQE model with vertex colors and armature.",
+	"description": "Import Inter-Quake model with vertex colors and armature.",
 	"category": "Import-Export",
 }
 
@@ -41,7 +41,7 @@ def mat3_to_vec_roll(mat):
 	return vec, roll
 
 #
-# IQE Parser
+# Inter-Quake Model structs
 #
 
 class IQMesh:
@@ -54,6 +54,20 @@ class IQMesh:
 		self.texcoords = []
 		self.colors = []
 		self.blends = []
+
+class IQBone:
+	def __init__(self, name, parent):
+		self.name = name
+		self.parent = parent
+
+class IQPose:
+	def __init__(self, data):
+		self.translate = data[0:3]
+		self.rotate = data[3:7]
+		if len(data) > 7:
+			self.scale = data[7:10]
+		else:
+			self.scale = (1,1,1)
 
 class IQAnimation:
 	def __init__(self, name):
@@ -70,72 +84,96 @@ class IQModel:
 		self.meshes = []
 		self.anims = []
 
-def load_iqe_model(filename):
+#
+# IQE parser
+#
+
+def load_iqe(filename):
 	name = filename.split("/")[-1].split("\\")[-1].split(".")[0]
 	model = IQModel(name)
-	mesh = None
-	pose = model.bindpose
-	anim = None
 	file = open(filename)
 	line = file.readline()
 	if not line.startswith("# Inter-Quake Export"):
-		raise Exception("Not an IQE file")
+		raise Exception("Not an IQE file!")
+	curpose = model.bindpose
+	curmesh = None
+	curanim = None
 	for line in file.readlines():
 		line = shlex.split(line, "#")
 		if len(line) == 0:
 			pass
 		elif line[0] == "joint":
-			name = line[1]
-			parent = int(line[2])
-			model.bones.append((name, parent))
+			model.bones.append(IQBone(line[1], int(line[2])))
 		elif line[0] == "pq":
-			pq = [float(x) for x in line[1:]]
-			if len(pq) < 10: pq += [1,1,1]
-			pose.append(pq)
+			curpose.append(IQPose([float(x) for x in line[1:]]))
 		elif line[0] == "pm": raise Exception("pm style poses not implemented yet")
 		elif line[0] == "pa": raise Exception("pa style poses not implemented yet")
 		elif line[0] == "mesh":
-			mesh = IQMesh(line[1])
-			model.meshes.append(mesh)
+			curmesh = IQMesh(line[1])
+			model.meshes.append(curmesh)
 		elif line[0] == "material":
-			mesh.material = line[1].split("+")
+			curmesh.material = line[1].split("+")
 		elif line[0] == "vp":
-			mesh.positions.append(tuple([float(x) for x in line[1:4]]))
+			x,y,z = float(line[1]), float(line[2]), float(line[3])
+			curmesh.positions.append((x,y,z))
 		elif line[0] == "vt":
-			u,v = [float(x) for x in line[1:3]]
-			mesh.texcoords.append((u,v))
+			u,v = float(line[1]), float(line[2])
+			curmesh.texcoords.append((u,v))
 		elif line[0] == "vn":
-			mesh.normals.append(tuple([float(x) for x in line[1:4]]))
+			x,y,z = float(line[1]), float(line[2]), float(line[3])
+			curmesh.normals.append((x,y,z))
 		elif line[0] == "vc":
-			mesh.colors.append(tuple([float(x) for x in line[1:]]))
+			r,g,b = float(line[1]), float(line[2]), float(line[3])
+			curmesh.colors.append((r,g,b))
 		elif line[0] == "vb":
-			mesh.blends.append(tuple([float(x) for x in line[1:]]))
+			curmesh.blends.append([float(x) for x in line[1:]])
 		elif line[0] == "fm":
-			a,b,c = [int(x) for x in line[1:]]
-			mesh.faces.append((a,b,c))
+			a,b,c = int(line[1]), int(line[2]), int(line[3])
+			curmesh.faces.append((a,b,c))
 		elif line[0] == "fa": raise Exception("fa style faces not implemented yet")
 		elif line[0] == "animation":
-			anim = IQAnimation(line[1])
-			model.anims.append(anim)
+			curanim = IQAnimation(line[1])
+			model.anims.append(curanim)
 		elif line[0] == "framerate":
-			anim.framerate = int(line[1])
+			curanim.framerate = int(line[1])
 		elif line[0] == "loop":
-			anim.loop = True
+			curanim.loop = True
 		elif line[0] == "frame":
-			pose = []
-			anim.frames.append(pose)
+			curpose = []
+			curanim.frames.append(curpose)
 	return model
 
 #
 # IQM Parser
 #
 
-VA_POSITION = 0
-VA_TEXCOORD = 1
-VA_NORMAL = 2
-VA_BLENDINDEXES = 4
-VA_BLENDWEIGHTS = 5
-VA_COLOR = 6
+IQM_POSITION = 0
+IQM_TEXCOORD = 1
+IQM_NORMAL = 2
+IQM_BLENDINDEXES = 4
+IQM_BLENDWEIGHTS = 5
+IQM_COLOR = 6
+
+IQM_BYTE = 0
+IQM_UBYTE = 1
+IQM_SHORT = 2
+IQM_USHORT = 3
+IQM_INT = 4
+IQM_UINT = 5
+IQM_HALF = 6
+IQM_FLOAT = 7
+IQM_DOUBLE = 8
+
+IQM_FORMAT = {
+	IQM_BYTE: "b",
+	IQM_UBYTE: "B",
+	IQM_SHORT: "h",
+	IQM_USHORT: "H",
+	IQM_INT: "i",
+	IQM_UINT: "I",
+	IQM_FLOAT: "f",
+	IQM_DOUBLE: "d"
+}
 
 def cstr(text, ofs):
 	len = 0
@@ -143,138 +181,12 @@ def cstr(text, ofs):
 		len += 1
 	return str(text[ofs:ofs+len], encoding='utf-8')
 
-def load_iqm_joints(file, text, num_joints, ofs_joints):
-	file.seek(ofs_joints)
-	bones = []
-	bindpose = []
-	for x in range(num_joints):
-		data = struct.unpack("<Ii10f", file.read(12*4))
-		name = cstr(text, data[0])
-		parent = data[1]
-		pose = data[2:12]
-		bones.append((name, parent))
-		bindpose.append(list(data[2:12]))
-	return bones, bindpose
-
-def load_iqm_poses(file, num_poses, ofs_poses):
-	file.seek(ofs_poses)
-	poselist = []
-	for x in range(num_poses):
-		pose = struct.unpack("<iI20f", file.read(22*4))
-		poselist.append(pose)
-	return poselist
-
-def load_iqm_frames(file, num_frames, num_framechannels, ofs_frames):
-	file.seek(ofs_frames)
-	F = "<"+"H"*num_framechannels; S=2*num_framechannels
-	framelist = []
-	for x in range(num_frames):
-		frame = struct.unpack(F, file.read(S))
-		framelist.append(frame)
-	return framelist
-
-def copy_iqm_frame(poselist, frame):
-	masktest = [0x01, 0x02, 0x04, 0x08, 0x10, 0x20, 0x40, 0x80, 0x100, 0x200]
-	out = []
-	p = 0
-	for pose in poselist:
-		mask = pose[1]
-		choffset = pose[2:2+10]
-		chscale = pose[2+10:2+10+10]
-		data = [x for x in choffset] # make a copy
-		for n in range(10):
-			if mask & masktest[n]:
-				data[n] += chscale[n] * frame[p]
-				p += 1
-		out.append(data)
-	return out
-
-def load_iqm_anims(file, text, num_anims, ofs_anims, poses, frames):
-	file.seek(ofs_anims)
-	anims = []
-	for n in range(num_anims):
-		data = struct.unpack("<3IfI", file.read(5*4))
-		name = cstr(text, data[0])
-		first = data[1]
-		count = data[2]
-		anim = IQAnimation(name)
-		anim.framerate = data[3]
-		anim.loop = data[4]
-		for y in range(first, first+count):
-			anim.frames.append(copy_iqm_frame(poses, frames[y]))
-		anims.append(anim)
-	return anims
-
-def load_iqm_vertexarray(file, format, size, offset, count):
-	if format != 1 and format != 7:
-		raise Exception("can only handle ubyte and float arrays")
-	if format == 1: A="<"+"B"*size; S=1*size
-	if format == 7: A="<"+"f"*size; S=4*size
+def load_iqm_structs(file, fmt, count, offset):
+	size = struct.calcsize(fmt)
 	file.seek(offset)
-	list = []
-	for n in range(count):
-		comp = struct.unpack(A, file.read(S))
-		list.append(comp)
-	return list
+	return [struct.unpack(fmt, file.read(size)) for n in range(count)]
 
-def load_iqm_vertexarrays(file, num_vertexarrays, num_vertexes, ofs_vertexarrays):
-	file.seek(ofs_vertexarrays)
-	valist = []
-	for n in range(num_vertexarrays):
-		va = struct.unpack("<5I", file.read(5*4))
-		valist += (va,)
-	verts = {}
-	for type, flags, format, size, offset in valist:
-		verts[type] = load_iqm_vertexarray(file, format, size, offset, num_vertexes)
-	return verts
-
-def load_iqm_triangles(file, num_triangles, ofs_triangles, ofs_adjacency):
-	file.seek(ofs_triangles)
-	tris = []
-	for n in range(num_triangles):
-		data = struct.unpack("<3I", file.read(3*4))
-		tris.append(data)
-	return tris
-
-def copy_iqm_verts(mesh, verts, first, count):
-	for n in range(first, first+count):
-		if VA_POSITION in verts:
-			mesh.positions.append(verts[VA_POSITION][n])
-		if VA_NORMAL in verts:
-			mesh.normals.append(verts[VA_NORMAL][n])
-		if VA_TEXCOORD in verts:
-			mesh.texcoords.append(verts[VA_TEXCOORD][n])
-		if VA_COLOR in verts:
-			mesh.colors.append(verts[VA_COLOR][n])
-		if VA_BLENDINDEXES in verts and VA_BLENDWEIGHTS in verts:
-			vb = []
-			for y in range(4):
-				if verts[VA_BLENDWEIGHTS][n][y] > 0:
-					vb.append(verts[VA_BLENDINDEXES][n][y])
-					vb.append(verts[VA_BLENDWEIGHTS][n][y]/255.0)
-			mesh.blends.append(vb)
-
-def copy_iqm_faces(mesh, tris, first, count, fv):
-	for n in range(first, first+count):
-		tri = tris[n]
-		mesh.faces.append((tri[0]-fv, tri[1]-fv, tri[2]-fv))
-
-def load_iqm_meshes(file, text, num_meshes, ofs_meshes, verts, tris):
-	file.seek(ofs_meshes)
-	meshes = []
-	for n in range(num_meshes):
-		data = struct.unpack("<6I", file.read(6*4))
-		name = cstr(text, data[0])
-		material = cstr(text, data[1])
-		v1, vnum, t1, tnum = data[2:]
-		mesh = IQMesh(name)
-		mesh.material = material.split("+")
-		copy_iqm_verts(mesh, verts, v1, vnum)
-		copy_iqm_faces(mesh, tris, t1, tnum, v1)
-		meshes.append(mesh)
-	return meshes
-
-def load_iqm_model(filename, ):
+def load_iqm(filename):
 	name = filename.split("/")[-1].split("\\")[-1].split(".")[0]
 	model = IQModel(name)
 	file = open(filename, "rb")
@@ -294,23 +206,100 @@ def load_iqm_model(filename, ):
 
 	if magic != b"INTERQUAKEMODEL\0":
 		raise Exception("Not an IQM file: '%s'", magic)
-
 	if version != 2:
 		raise Exception("Not an IQMv2 file.")
 
 	file.seek(ofs_text)
 	text = file.read(num_text);
 
-	verts = load_iqm_vertexarrays(file, num_vertexarrays, num_vertexes, ofs_vertexarrays)
-	tris = load_iqm_triangles(file, num_triangles, ofs_triangles, ofs_adjacency)
-	poses = load_iqm_poses(file, num_poses, ofs_poses)
-	frames = load_iqm_frames(file, num_frames, num_framechannels, ofs_frames)
+	load_iqm_joints(model, file, text, num_joints, ofs_joints)
 
-	model.bones, model.bindpose = load_iqm_joints(file, text, num_joints, ofs_joints)
-	model.meshes = load_iqm_meshes(file, text, num_meshes, ofs_meshes, verts, tris)
-	model.anims = load_iqm_anims(file, text, num_anims, ofs_anims, poses, frames)
+	valist = load_iqm_vertexarrays(file, num_vertexarrays, num_vertexes, ofs_vertexarrays)
+	triangles = load_iqm_structs(file, "<3I", num_triangles, ofs_triangles)
+	load_iqm_meshes(model, file, text, num_meshes, ofs_meshes, valist, triangles)
+
+	poses = load_iqm_structs(file, "<iI20f", num_poses, ofs_poses)
+	frames = load_iqm_structs(file, "<" + "H" * num_framechannels, num_frames, ofs_frames)
+	load_iqm_anims(model, file, text, num_anims, ofs_anims, poses, frames)
 
 	return model
+
+def load_iqm_joints(model, file, text, num_joints, ofs_joints):
+	file.seek(ofs_joints)
+	for n in range(num_joints):
+		data = struct.unpack("<Ii10f", file.read(12*4))
+		name = cstr(text, data[0])
+		parent = data[1]
+		pose = data[2:12]
+		model.bones.append(IQBone(name, parent))
+		model.bindpose.append(IQPose(data[2:12]))
+
+def load_iqm_vertexarray(file, format, size, offset, count):
+	if format not in IQM_FORMAT:
+		raise Exception("unknown vertex array data type: %d" % format)
+	return load_iqm_structs(file, "<" + IQM_FORMAT[format] * size, count, offset)
+
+def load_iqm_vertexarrays(file, num_vertexarrays, num_vertexes, ofs_vertexarrays):
+	va = load_iqm_structs(file, "<5I", num_vertexarrays, ofs_vertexarrays)
+	valist = {}
+	for type, flags, format, size, offset in va:
+		valist[type] = load_iqm_vertexarray(file, format, size, offset, num_vertexes)
+	return valist
+
+def copy_iqm_verts(mesh, valist, first, count):
+	for n in range(first, first+count):
+		if IQM_POSITION in valist:
+			mesh.positions.append(valist[IQM_POSITION][n])
+		if IQM_NORMAL in valist:
+			mesh.normals.append(valist[IQM_NORMAL][n])
+		if IQM_TEXCOORD in valist:
+			mesh.texcoords.append(valist[IQM_TEXCOORD][n])
+		if IQM_COLOR in valist:
+			r, g, b, a = valist[IQM_COLOR][n]
+			mesh.colors.append((r/255.0, g/255.0, b/255.0, a/255.0))
+		if IQM_BLENDINDEXES in valist and IQM_BLENDWEIGHTS in valist:
+			vb = []
+			for y in range(4):
+				if valist[IQM_BLENDWEIGHTS][n][y] > 0:
+					vb.append(valist[IQM_BLENDINDEXES][n][y])
+					vb.append(valist[IQM_BLENDWEIGHTS][n][y]/255.0)
+			mesh.blends.append(vb)
+
+def load_iqm_meshes(model, file, text, num_meshes, ofs_meshes, valist, triangles):
+	file.seek(ofs_meshes)
+	for n in range(num_meshes):
+		name, material, vfirst, vcount, tfirst, tcount = struct.unpack("<6I", file.read(6*4))
+		mesh = IQMesh(cstr(text, name))
+		mesh.material = cstr(text, material).split("+")
+		copy_iqm_verts(mesh, valist, vfirst, vcount)
+		mesh.faces = [(a-vfirst, b-vfirst, c-vfirst) for a,b,c in triangles[tfirst:tfirst+tcount]]
+		model.meshes.append(mesh)
+
+def copy_iqm_frame(poselist, frame):
+	masktest = [0x01, 0x02, 0x04, 0x08, 0x10, 0x20, 0x40, 0x80, 0x100, 0x200]
+	out = []
+	p = 0
+	for pose in poselist:
+		mask = pose[1]
+		choffset = pose[2:2+10]
+		chscale = pose[2+10:2+10+10]
+		data = [x for x in choffset] # make a copy
+		for n in range(10):
+			if mask & masktest[n]:
+				data[n] += chscale[n] * frame[p]
+				p += 1
+		out.append(data)
+	return out
+
+def load_iqm_anims(model, file, text, num_anims, ofs_anims, poses, frames):
+	file.seek(ofs_anims)
+	for n in range(num_anims):
+		name, first, count, framerate, loop = struct.unpack("<3IfI", file.read(5*4))
+		anim = IQAnimation(cstr(text, name))
+		anim.framerate = framerate
+		anim.loop = loop
+		anim.frames = [copy_iqm_frame(poses, frame) for frame in frames[first:first+count]]
+		model.anims.append(anim)
 
 #
 # Create armature from joints and the bind pose.
@@ -332,28 +321,29 @@ def calc_pose_mats(iqmodel, iqpose, bone_axis):
 	abs_pose_mat = [None] * len(iqmodel.bones)
 
 	for n in range(len(iqmodel.bones)):
-		bonename, boneparent = iqmodel.bones[n]
-		pose = iqpose[n]
+		iqbone = iqmodel.bones[n]
 
-		local_loc = Vector(pose[0:3])
-		local_rot = Quaternion([pose[6]] + pose[3:6])
-		local_size = Vector(pose[7:10])
+		pose_pos = iqpose[n].translate
+		pose_rot = iqpose[n].rotate
+		pose_scale = iqpose[n].scale
 
-		mat_loc = Matrix.Translation(local_loc)
+		local_pos = Vector(pose_pos)
+		local_rot = Quaternion((pose_rot[3], pose_rot[0], pose_rot[1], pose_rot[2]))
+		local_scale = Vector(pose_scale)
+
+		mat_pos = Matrix.Translation(local_pos)
 		mat_rot = local_rot.to_matrix().to_4x4()
-		mat_size = Matrix.Scale(local_size.x, 3).to_4x4()
-		loc_pose_mat = mat_loc * mat_rot * mat_size
+		mat_scale = Matrix.Scale(local_scale.x, 3).to_4x4()
+		loc_pose_mat = mat_pos * mat_rot * mat_scale
 
-		if boneparent >= 0:
-			abs_pose_mat[n] = abs_pose_mat[boneparent] * loc_pose_mat
+		if iqbone.parent >= 0:
+			abs_pose_mat[n] = abs_pose_mat[iqbone.parent] * loc_pose_mat
 		else:
 			abs_pose_mat[n] = loc_pose_mat
 
 	if bone_axis == 'X': axis_flip = Matrix.Rotation(math.radians(-90), 4, 'Z')
 	if bone_axis == 'Z': axis_flip = Matrix.Rotation(math.radians(-90), 4, 'X')
-	if bone_axis != 'Y':
-		for n in range(len(iqmodel.bones)):
-			abs_pose_mat[n] = abs_pose_mat[n] * axis_flip
+	if bone_axis != 'Y': abs_pose_mat = [m * axis_flip for m in abs_pose_mat]
 
 	return abs_pose_mat
 
@@ -374,12 +364,12 @@ def make_armature(iqmodel, bone_axis):
 	abs_bind_mat = calc_pose_mats(iqmodel, iqmodel.bindpose, bone_axis)
 
 	for n in range(len(iqmodel.bones)):
-		bonename, boneparent = iqmodel.bones[n]
+		iqbone = iqmodel.bones[n]
 
-		bone = amt.edit_bones.new(bonename)
+		bone = amt.edit_bones.new(iqbone.name)
 		parent = None
-		if boneparent >= 0:
-			parent = amt.edit_bones[boneparent]
+		if iqbone.parent >= 0:
+			parent = amt.edit_bones[iqbone.parent]
 			bone.parent = parent
 
 		# TODO: bone scaling
@@ -528,7 +518,6 @@ def make_mesh(iqmodel, iqmesh, amtobj):
 	# Vertex colors
 
 	if len(iqmesh.colors) == len(iqmesh.positions):
-		print("has vertex colors")
 		clayer = mesh.vertex_colors.new()
 		for n in range(len(mesh.faces)):
 			a, b, c = mesh.faces[n].vertices
@@ -540,9 +529,8 @@ def make_mesh(iqmodel, iqmesh, amtobj):
 	# Vertex groups for skinning
 
 	if len(iqmesh.blends) == len(iqmesh.positions) and amtobj:
-		print("has vertex bone weights")
-		for bonename, boneparent in iqmodel.bones:
-			obj.vertex_groups.new(bonename)
+		for iqbone in iqmodel.bones:
+			obj.vertex_groups.new(iqbone.name)
 		for vgroup in obj.vertex_groups:
 			for n in range(len(iqmesh.blends)):
 				blend = iqmesh.blends[n]
@@ -599,9 +587,9 @@ def make_model(iqmodel, bone_axis):
 
 def import_iqm_file(filename, bone_axis='Y'):
 	if filename.endswith(".iqm") or filename.endswith(".IQM"):
-		iqmodel = load_iqm_model(filename)
+		iqmodel = load_iqm(filename)
 	else:
-		iqmodel = load_iqe_model(filename)
+		iqmodel = load_iqe(filename)
 	make_model(iqmodel, bone_axis)
 
 #
@@ -645,5 +633,5 @@ if __name__ == "__main__":
 
 #import_iqm_file("ju_s3_banana_tree.iqe")
 #import_iqm_file("tr_mo_c03.iqe")
-#import_iqm_file("tr_mo_kami_fighter.iqe")
+import_iqm_file("tr_mo_kami_fighter.iqe")
 #import_iqm_file("tr_mo_kami_fighter.iqm")
