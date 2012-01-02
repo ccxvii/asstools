@@ -334,6 +334,7 @@ def load_iqm_anims(model, file, text, num_anims, ofs_anims, poses, frames):
 def calc_pose_mats(iqmodel, iqpose, bone_axis):
 	loc_pose_mat = [None] * len(iqmodel.bones)
 	abs_pose_mat = [None] * len(iqmodel.bones)
+	recalc = False
 
 	# convert pose to local matrix and compute absolute matrix
 	for n in range(len(iqmodel.bones)):
@@ -357,11 +358,28 @@ def calc_pose_mats(iqmodel, iqpose, bone_axis):
 		else:
 			abs_pose_mat[n] = loc_pose_mat[n]
 
+	# Remove negative scaling from bones.
+	# Due to numerical instabilities in blender's matrix <-> head/tail/roll math
+	# this isn't always stable when the bones are in the X axis. If the bones
+	# end up rotated 90 degrees from what they should be, that's the reason.
+	for n in range(len(iqmodel.bones)):
+		if abs_pose_mat[n].is_negative:
+			if not hasattr(iqmodel, 'abs_bind_mat'):
+				print("warning: removing negative scale in bone", iqmodel.bones[n].name)
+			abs_pose_mat[n] = abs_pose_mat[n] * Matrix.Scale(-1, 4)
+			recalc = True
+
 	# flip bone axis (and recompute local matrix if needed)
-	if bone_axis == 'X': axis_flip = Matrix.Rotation(math.radians(-90), 4, 'Z')
-	if bone_axis == 'Z': axis_flip = Matrix.Rotation(math.radians(-90), 4, 'X')
-	if bone_axis != 'Y':
+	if bone_axis == 'X':
+		axis_flip = Matrix.Rotation(math.radians(-90), 4, 'Z')
 		abs_pose_mat = [m * axis_flip for m in abs_pose_mat]
+		recalc = True
+	if bone_axis == 'Z':
+		axis_flip = Matrix.Rotation(math.radians(-90), 4, 'X')
+		abs_pose_mat = [m * axis_flip for m in abs_pose_mat]
+		recalc = True
+
+	if recalc:
 		inv_pose_mat = [m.inverted() for m in abs_pose_mat]
 		for n in range(len(iqmodel.bones)):
 			iqbone = iqmodel.bones[n]
@@ -383,6 +401,8 @@ def make_armature(iqmodel, bone_axis):
 	obj = bpy.data.objects.new(abbr(iqmodel.name), amt)
 	bpy.context.scene.objects.link(obj)
 	bpy.context.scene.objects.active = obj
+
+	amt.use_deform_envelopes = False
 
 	bpy.ops.object.mode_set(mode='EDIT')
 
@@ -428,10 +448,11 @@ def make_pose(iqmodel, frame, amtobj, bone_axis, tick):
 	loc_pose_mat, _ = calc_pose_mats(iqmodel, frame, bone_axis)
 	for n in range(len(iqmodel.bones)):
 		pose_bone = amtobj.pose.bones[n]
-		pose_bone.matrix_basis = iqmodel.inv_loc_bind_mat[n] * loc_pose_mat[n]
+		matrix_basis = iqmodel.inv_loc_bind_mat[n] * loc_pose_mat[n]
+		pose_bone.matrix_basis = matrix_basis
 		pose_bone.keyframe_insert(data_path='location', frame=tick)
 		pose_bone.keyframe_insert(data_path='rotation_quaternion', frame=tick)
-		#pose_bone.keyframe_insert(data_path='scale', frame=tick)
+		pose_bone.keyframe_insert(data_path='scale', frame=tick)
 
 def make_anim(iqmodel, anim, amtobj, bone_axis):
 	print("importing animation %s with %d frames" % (anim.name, len(anim.frames)))
@@ -441,6 +462,15 @@ def make_anim(iqmodel, anim, amtobj, bone_axis):
 	amtobj.animation_data.action = action
 	for n in range(len(anim.frames)):
 		make_pose(iqmodel, anim.frames[n], amtobj, bone_axis, n)
+
+	# ugh, ugly hack to get the right context for bpy.ops
+	if bpy.context.area:
+		saved_area_type = bpy.context.area.type
+		bpy.context.area.type = 'DOPESHEET_EDITOR'
+		bpy.ops.action.clean(threshold=0.00001)
+		bpy.context.area.type = saved_area_type
+	else:
+		print("No window, can't select action context to clean keyframes.")
 
 #
 # Create simple material by looking at the magic words.
@@ -620,6 +650,7 @@ def import_iqm_file(filename, bone_axis='Y'):
 		iqmodel = load_iqe(filename)
 	dir = os.path.dirname(filename)
 	make_model(iqmodel, bone_axis, dir)
+	bpy.ops.screen.frame_jump()
 
 #
 # Register addon
@@ -661,7 +692,7 @@ if __name__ == "__main__":
 	register()
 
 #import_iqm_file("ju_s3_banana_tree.iqe")
-#import_iqm_file("tr_mo_c03.iqe")
-#import_iqm_file("tr_mo_kami_fighter.iqe")
-#import_iqm_file("tr_mo_kami_fighter.iqm")
 #import_iqm_file("tr_mo_kami_fighter_co_idle.iqe", 'Y')
+#import_iqm_file("zo_mo_gibbai_marche.iqm", 'X')
+#import_iqm_file("tr_mo_crustace_idle.iqe", 'X')
+#import_iqm_file("pr_mo_phytopsy_mort.iqe", 'Y')
