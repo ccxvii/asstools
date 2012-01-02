@@ -10,11 +10,18 @@ bl_info = {
 	"category": "Import-Export",
 }
 
-import bpy, math, shlex, struct
+import bpy, math, shlex, struct, os
 
 from bpy.props import *
 from bpy_extras.io_utils import ImportHelper
+from bpy_extras.image_utils import load_image
 from mathutils import Matrix, Quaternion, Vector
+
+def abbr(name):
+	BLENDER_MAX_NAME_LEN = 21
+	if len(name) > BLENDER_MAX_NAME_LEN:
+		name = name[-BLENDER_MAX_NAME_LEN:]
+	return name
 
 # see blenkernel/intern/armature.c for vec_roll_to_mat3
 # see blenkernel/intern/armature.c for mat3_to_vec_roll
@@ -24,9 +31,13 @@ def vec_roll_to_mat3(vec, roll):
 	target = Vector((0,1,0))
 	nor = vec.normalized()
 	axis = target.cross(nor)
-	axis.normalize()
-	theta = target.angle(nor)
-	bMatrix = Matrix.Rotation(theta, 3, axis)
+	if axis.dot(axis) > 0.000001:
+		axis.normalize()
+		theta = target.angle(nor)
+		bMatrix = Matrix.Rotation(theta, 3, axis)
+	else:
+		updown = 1 if target.dot(nor) > 0 else -1
+		bMatrix = Matrix.Scale(updown, 3)
 	rMatrix = Matrix.Rotation(roll, 3, nor)
 	mat = rMatrix * bMatrix
 	return mat
@@ -99,7 +110,10 @@ def load_iqe(filename):
 	curmesh = None
 	curanim = None
 	for line in file.readlines():
-		line = shlex.split(line, "#")
+		if "#" in line or "\"" in line:
+			line = shlex.split(line, "#")
+		else:
+			line = line.split()
 		if len(line) == 0:
 			pass
 		elif line[0] == "joint":
@@ -288,7 +302,7 @@ def copy_iqm_frame(poselist, frame):
 			if mask & masktest[n]:
 				data[n] += chscale[n] * frame[p]
 				p += 1
-		out.append(data)
+		out.append(IQPose(data))
 	return out
 
 def load_iqm_anims(model, file, text, num_anims, ofs_anims, poses, frames):
@@ -318,8 +332,10 @@ def load_iqm_anims(model, file, text, num_anims, ofs_anims, poses, frames):
 # Calculate armature space matrices for all bones in a pose
 
 def calc_pose_mats(iqmodel, iqpose, bone_axis):
+	loc_pose_mat = [None] * len(iqmodel.bones)
 	abs_pose_mat = [None] * len(iqmodel.bones)
 
+	# convert pose to local matrix and compute absolute matrix
 	for n in range(len(iqmodel.bones)):
 		iqbone = iqmodel.bones[n]
 
@@ -334,18 +350,27 @@ def calc_pose_mats(iqmodel, iqpose, bone_axis):
 		mat_pos = Matrix.Translation(local_pos)
 		mat_rot = local_rot.to_matrix().to_4x4()
 		mat_scale = Matrix.Scale(local_scale.x, 3).to_4x4()
-		loc_pose_mat = mat_pos * mat_rot * mat_scale
+		loc_pose_mat[n] = mat_pos * mat_rot * mat_scale
 
 		if iqbone.parent >= 0:
-			abs_pose_mat[n] = abs_pose_mat[iqbone.parent] * loc_pose_mat
+			abs_pose_mat[n] = abs_pose_mat[iqbone.parent] * loc_pose_mat[n]
 		else:
-			abs_pose_mat[n] = loc_pose_mat
+			abs_pose_mat[n] = loc_pose_mat[n]
 
+	# flip bone axis (and recompute local matrix if needed)
 	if bone_axis == 'X': axis_flip = Matrix.Rotation(math.radians(-90), 4, 'Z')
 	if bone_axis == 'Z': axis_flip = Matrix.Rotation(math.radians(-90), 4, 'X')
-	if bone_axis != 'Y': abs_pose_mat = [m * axis_flip for m in abs_pose_mat]
+	if bone_axis != 'Y':
+		abs_pose_mat = [m * axis_flip for m in abs_pose_mat]
+		inv_pose_mat = [m.inverted() for m in abs_pose_mat]
+		for n in range(len(iqmodel.bones)):
+			iqbone = iqmodel.bones[n]
+			if iqbone.parent >= 0:
+				loc_pose_mat[n] = inv_pose_mat[iqbone.parent] * abs_pose_mat[n]
+			else:
+				loc_pose_mat[n] = abs_pose_mat[n]
 
-	return abs_pose_mat
+	return loc_pose_mat, abs_pose_mat
 
 def make_armature(iqmodel, bone_axis):
 
@@ -355,13 +380,16 @@ def make_armature(iqmodel, bone_axis):
 	print("importing armature with %d bones" % len(iqmodel.bones))
 
 	amt = bpy.data.armatures.new("Skeleton")
-	obj = bpy.data.objects.new(iqmodel.name, amt)
+	obj = bpy.data.objects.new(abbr(iqmodel.name), amt)
 	bpy.context.scene.objects.link(obj)
 	bpy.context.scene.objects.active = obj
 
 	bpy.ops.object.mode_set(mode='EDIT')
 
-	abs_bind_mat = calc_pose_mats(iqmodel, iqmodel.bindpose, bone_axis)
+	loc_bind_mat, abs_bind_mat = calc_pose_mats(iqmodel, iqmodel.bindpose, bone_axis)
+	iqmodel.abs_bind_mat = abs_bind_mat
+	iqmodel.loc_bind_mat = loc_bind_mat
+	iqmodel.inv_loc_bind_mat = [m.inverted() for m in loc_bind_mat]
 
 	for n in range(len(iqmodel.bones)):
 		iqbone = iqmodel.bones[n]
@@ -373,18 +401,18 @@ def make_armature(iqmodel, bone_axis):
 			bone.parent = parent
 
 		# TODO: bone scaling
-		loc = abs_bind_mat[n].to_translation()
+		pos = abs_bind_mat[n].to_translation()
 		axis, roll = mat3_to_vec_roll(abs_bind_mat[n].to_3x3())
 		axis *= 0.125 # short bones
 		bone.roll = roll
-		bone.head = loc
-		bone.tail = loc + axis
+		bone.head = pos
+		bone.tail = pos + axis
 
 		# extend parent and connect if we are aligned
 		if parent:
 			a = (bone.head - parent.head).normalized()
 			b = (parent.tail - parent.head).normalized()
-			if a.dot(b) > 0.999:
+			if a.dot(b) > 0.9999:
 				parent.tail = bone.head
 				bone.use_connect = True
 
@@ -396,20 +424,23 @@ def make_armature(iqmodel, bone_axis):
 # Strike a pose.
 #
 
-def make_pose(iqmodel, iqpose, amtobj, bone_axis):
-	abs_pose_mat = calc_pose_mats(iqmodel, iqpose, bone_axis)
-	#abs_pose_mat = calc_pose_mats(iqmodel, iqmodel.bindpose, bone_axis)
+def make_pose(iqmodel, frame, amtobj, bone_axis, tick):
+	loc_pose_mat, _ = calc_pose_mats(iqmodel, frame, bone_axis)
 	for n in range(len(iqmodel.bones)):
 		pose_bone = amtobj.pose.bones[n]
-		rest_bone = amtobj.data.bones[n]
+		pose_bone.matrix_basis = iqmodel.inv_loc_bind_mat[n] * loc_pose_mat[n]
+		pose_bone.keyframe_insert(data_path='location', frame=tick)
+		pose_bone.keyframe_insert(data_path='rotation_quaternion', frame=tick)
+		#pose_bone.keyframe_insert(data_path='scale', frame=tick)
 
-		# hmm, they're not the same in the initial pose!
-		print("BONE", n)
-		print(abs_pose_mat[n])
-		print(rest_bone.matrix_local)
-		print(pose_bone.matrix)
-
-		pose_bone.matrix = rest_bone.matrix_local
+def make_anim(iqmodel, anim, amtobj, bone_axis):
+	print("importing animation %s with %d frames" % (anim.name, len(anim.frames)))
+	bpy.context.scene.render.fps = anim.framerate
+	amtobj.animation_data_create()
+	action = bpy.data.actions.new(abbr(anim.name))
+	amtobj.animation_data.action = action
+	for n in range(len(anim.frames)):
+		make_pose(iqmodel, anim.frames[n], amtobj, bone_axis, n)
 
 #
 # Create simple material by looking at the magic words.
@@ -418,9 +449,10 @@ def make_pose(iqmodel, iqpose, amtobj, bone_axis):
 
 images = {}
 
-def make_material(mesh, iqmaterial):
+def make_material(mesh, iqmaterial, dir):
 	matname = "+".join(iqmaterial)
-	texname = iqmaterial[-1] + ".png"
+	texname = iqmaterial[-1]
+	if not "." in texname: texname += ".png"
 
 	print("importing material", matname)
 
@@ -430,10 +462,7 @@ def make_material(mesh, iqmaterial):
 	unlit = 'unlit' in iqmaterial
 
 	if not texname in images:
-		try:
-			images[texname] = bpy.data.images.load(texname)
-		except:
-			images[texname] = None
+		images[texname] = load_image(texname, dir, place_holder=True, recursive=True)
 	image = images[texname]
 
 	# if image: image.use_premultiply = True
@@ -475,12 +504,12 @@ def make_material(mesh, iqmaterial):
 # and an armature modifier if the model is skinned.
 #
 
-def make_mesh(iqmodel, iqmesh, amtobj):
+def make_mesh(iqmodel, iqmesh, amtobj, dir):
 	print("importing mesh %s with %d vertices and %d faces" %
 		(iqmesh.name, len(iqmesh.positions), len(iqmesh.faces)))
 
-	mesh = bpy.data.meshes.new(iqmesh.name)
-	obj = bpy.data.objects.new(iqmesh.name, mesh)
+	mesh = bpy.data.meshes.new(abbr(iqmesh.name))
+	obj = bpy.data.objects.new(abbr(iqmesh.name), mesh)
 	bpy.context.scene.objects.link(obj)
 	bpy.context.scene.objects.active = obj
 
@@ -546,7 +575,7 @@ def make_mesh(iqmodel, iqmesh, amtobj):
 
 	# Material
 
-	image = make_material(mesh, iqmesh.material)
+	image = make_material(mesh, iqmesh.material, dir)
 
 	# update faces to point to the texture image
 	if len(iqmesh.texcoords) == len(iqmesh.positions):
@@ -564,7 +593,7 @@ def make_mesh(iqmodel, iqmesh, amtobj):
 # Otherwise create an empty object and group the meshes in that.
 #
 
-def make_model(iqmodel, bone_axis):
+def make_model(iqmodel, bone_axis, dir):
 	print("importing model", iqmodel.name)
 
 	for obj in bpy.context.scene.objects:
@@ -572,16 +601,15 @@ def make_model(iqmodel, bone_axis):
 
 	amtobj = make_armature(iqmodel, bone_axis)
 	if not amtobj:
-		grpobj = bpy.data.objects.new(iqmodel.name, None)
+		grpobj = bpy.data.objects.new(abbr(iqmodel.name), None)
 		bpy.context.scene.objects.link(grpobj)
 
 	for iqmesh in iqmodel.meshes:
-		meshobj = make_mesh(iqmodel, iqmesh, amtobj)
+		meshobj = make_mesh(iqmodel, iqmesh, amtobj, dir)
 		meshobj.parent = amtobj if amtobj else grpobj
 
-	if len(iqmodel.anims) > 0:
-		print("warning: cannot import animations yet:", len(iqmodel.anims))
-		# make_pose(iqmodel, iqmodel.anims[0].frames[0], amtobj, bone_axis)
+	for anim in iqmodel.anims:
+		make_anim(iqmodel, anim, amtobj, bone_axis)
 
 	print("all done.")
 
@@ -590,7 +618,8 @@ def import_iqm_file(filename, bone_axis='Y'):
 		iqmodel = load_iqm(filename)
 	else:
 		iqmodel = load_iqe(filename)
-	make_model(iqmodel, bone_axis)
+	dir = os.path.dirname(filename)
+	make_model(iqmodel, bone_axis, dir)
 
 #
 # Register addon
@@ -608,8 +637,8 @@ class ImportIQM(bpy.types.Operator, ImportHelper):
 			description="Flip bones to extend along the Y axis",
 			items=[
 				('Y', "Preserve", ""),
-				('X', "From X to Y", ""),
-				('Z', "From Z to Y", "")
+				('X', "Flip from X to Y", ""),
+				('Z', "Flip from Z to Y", "")
 			],
 			default='Y')
 
@@ -633,5 +662,6 @@ if __name__ == "__main__":
 
 #import_iqm_file("ju_s3_banana_tree.iqe")
 #import_iqm_file("tr_mo_c03.iqe")
-import_iqm_file("tr_mo_kami_fighter.iqe")
+#import_iqm_file("tr_mo_kami_fighter.iqe")
 #import_iqm_file("tr_mo_kami_fighter.iqm")
+#import_iqm_file("tr_mo_kami_fighter_co_idle.iqe", 'Y')
