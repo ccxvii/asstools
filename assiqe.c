@@ -26,6 +26,9 @@ int doanim = 0; // export animations
 int dobone = 0; // export skeleton
 int doflip = 1; // export flipped (quake-style clockwise winding) triangles
 
+int doaxis = 0; // flip bone axis from X to Y to match blender
+int dounscale = 0; // remove scaling from bind pose
+
 // We use %.9g to print floats with 9 digits of precision which
 // is enough to represent a 32-bit float accurately, while still
 // shortening if possible to save space for all those 0s and 1s.
@@ -46,9 +49,16 @@ static struct aiMatrix4x4 yup_to_zup = {
 	0, 0, 0, 1
 };
 
-float aiDeterminant(struct aiMatrix4x4 *m)
+static struct aiMatrix4x4 axis_x_to_y = {
+	0, 1, 0, 0,
+	-1, 0, 0, 0,
+	0, 0, 1, 0,
+	0, 0, 0, 1
+};
+
+double aiDeterminant(struct aiMatrix4x4 *m)
 {
-	return
+	return (double)
 		m->a1*m->b2*m->c3*m->d4 - m->a1*m->b2*m->c4*m->d3 +
 		m->a1*m->b3*m->c4*m->d2 - m->a1*m->b3*m->c2*m->d4 +
 		m->a1*m->b4*m->c2*m->d3 - m->a1*m->b4*m->c3*m->d2 -
@@ -65,9 +75,9 @@ float aiDeterminant(struct aiMatrix4x4 *m)
 
 void aiInverseMatrix(struct aiMatrix4x4 *p, struct aiMatrix4x4 *m)
 {
-	float det = aiDeterminant(m);
-	assert(det != 0.0f);
-	float invdet = 1.0f / det;
+	double det = aiDeterminant(m);
+	assert(det != 0.0);
+	double invdet = 1.0 / det;
 	p->a1= invdet * (m->b2*(m->c3*m->d4-m->c4*m->d3) + m->b3*(m->c4*m->d2-m->c2*m->d4) + m->b4*(m->c2*m->d3-m->c3*m->d2));
 	p->a2=-invdet * (m->a2*(m->c3*m->d4-m->c4*m->d3) + m->a3*(m->c4*m->d2-m->c2*m->d4) + m->a4*(m->c2*m->d3-m->c3*m->d2));
 	p->a3= invdet * (m->a2*(m->b3*m->d4-m->b4*m->d3) + m->a3*(m->b4*m->d2-m->b2*m->d4) + m->a4*(m->b2*m->d3-m->b3*m->d2));
@@ -86,9 +96,47 @@ void aiInverseMatrix(struct aiMatrix4x4 *p, struct aiMatrix4x4 *m)
 	p->d4= invdet * (m->a1*(m->b2*m->c3-m->b3*m->c2) + m->a2*(m->b3*m->c1-m->b1*m->c3) + m->a3*(m->b1*m->c2-m->b2*m->c1));
 }
 
+void aiComposeMatrix(struct aiMatrix4x4 *m, struct aiVector3D *scale, struct aiQuaternion *q, struct aiVector3D *pos)
+{
+	struct aiMatrix4x4 smat;
+
+	aiIdentityMatrix4(m);
+	m->a1 = 1.0f - 2.0f * (q->y * q->y + q->z * q->z);
+	m->a2 = 2.0f * (q->x * q->y - q->z * q->w);
+	m->a3 = 2.0f * (q->x * q->z + q->y * q->w);
+	m->b1 = 2.0f * (q->x * q->y + q->z * q->w);
+	m->b2 = 1.0f - 2.0f * (q->x * q->x + q->z * q->z);
+	m->b3 = 2.0f * (q->y * q->z - q->x * q->w);
+	m->c1 = 2.0f * (q->x * q->z - q->y * q->w);
+	m->c2 = 2.0f * (q->y * q->z + q->x * q->w);
+	m->c3 = 1.0f - 2.0f * (q->x * q->x + q->y * q->y);
+
+	aiIdentityMatrix4(&smat);
+	smat.a1 = scale->x;
+	smat.b2 = scale->y;
+	smat.c3 = scale->z;
+
+	aiMultiplyMatrix4(m, &smat);
+
+	m->a4 = pos->x; m->b4 = pos->y; m->c4 = pos->z;
+}
+
+void aiNormalizeQuaternion(struct aiQuaternion *q)
+{
+	const float mag = sqrt(q->x*q->x + q->y*q->y + q->z*q->z + q->w*q->w);
+	if (mag)
+	{
+		const float invMag = 1.0f/mag;
+		q->x *= invMag;
+		q->y *= invMag;
+		q->z *= invMag;
+		q->w *= invMag;
+	}
+}
+
 void print_matrix(struct aiMatrix4x4 *m)
 {
-	fprintf(stderr, "matrix %g %g %g %g %g %g %g %g %g (det=%g)\n",
+	printf("matrix %g %g %g %g %g %g %g %g %g (det=%g)\n",
 			m->a1, m->a2, m->a3,
 			m->b1, m->b2, m->b3,
 			m->c1, m->c2, m->c3,
@@ -128,20 +176,22 @@ struct material matlist[1000];
 int nummats = 0;
 
 struct bone {
+	struct aiNode *node;
 	char *name;
-	int number; // for iqe export
 	int parent;
+	int number; // for iqe export
 	int isbone;
 	int isskin;
 	int isrigid;
-	struct aiNode *node;
+	char *reason; // reason for selecting
+	float unscale[3]; // inverse of scaling factor in bind pose
+
+	// scratch matrices for inverse bind pose and absolute bind pose
 	struct aiMatrix4x4 invpose; // inv(parent * pose)
 	struct aiMatrix4x4 abspose; // (parent * pose)
+
+	// current pose in matrix and decomposed form
 	struct aiMatrix4x4 pose;
-
-	char *reason; // reason for selecting
-
-	// current pose in decomposed form
 	struct aiVector3D translate;
 	struct aiQuaternion rotate;
 	struct aiVector3D scale;
@@ -253,8 +303,23 @@ void apply_initial_frame(void)
 {
 	int i;
 	for (i = 0; i < numbones; i++) {
+		// restore original transformation
 		bonelist[i].pose = bonelist[i].node->mTransformation;
+		// ... and update rotate/translate/scale
 		aiDecomposeMatrix(&bonelist[i].pose, &bonelist[i].scale, &bonelist[i].rotate, &bonelist[i].translate);
+	}
+}
+
+// recalculate abspose from local pose matrix
+void calc_abs_pose(void)
+{
+	int i;
+	for (i = 0; i < numbones; i++) {
+		bonelist[i].abspose = bonelist[i].pose;
+		if (bonelist[i].parent >= 0) {
+			bonelist[i].abspose = bonelist[bonelist[i].parent].abspose;
+			aiMultiplyMatrix4(&bonelist[i].abspose, &bonelist[i].pose);
+		}
 	}
 }
 
@@ -285,6 +350,11 @@ void calc_bind_pose(void)
 			aiInverseMatrix(&bonelist[i].invpose, &bonelist[i].abspose);
 		}
 	}
+
+	// compute translate/rotate/scale
+	for (i = 0; i < numbones; i++)
+		if (bonelist[i].isbone)
+			aiDecomposeMatrix(&bonelist[i].pose, &bonelist[i].scale, &bonelist[i].rotate, &bonelist[i].translate);
 }
 
 void mark_bone_parents(int i)
@@ -435,16 +505,17 @@ int build_bone_list(const struct aiScene *scene)
 
 // --- export poses and animation frames ---
 
-void export_pm(FILE *out, struct aiMatrix4x4 *m)
+void export_pm(FILE *out, int i)
 {
+	struct aiMatrix4x4 m = bonelist[i].pose;
 	fprintf(out, "pm %.9g %.9g %.9g %.9g %.9g %.9g %.9g %.9g %.9g %.9g %.9g %.9g\n",
-		(m->a4), (m->b4), (m->c4),
-		(m->a1), (m->a2), (m->a3),
-		(m->b1), (m->b2), (m->b3),
-		(m->c1), (m->c2), (m->c3));
+		KILL(m.a4), KILL(m.b4), KILL(m.c4),
+		(m.a1), (m.a2), (m.a3),
+		(m.b1), (m.b2), (m.b3),
+		(m.c1), (m.c2), (m.c3));
 }
 
-void export_pose(FILE *out, int i)
+void export_pq(FILE *out, int i)
 {
 	struct aiQuaternion rotate = bonelist[i].rotate;
 	struct aiVector3D scale = bonelist[i].scale;
@@ -463,24 +534,90 @@ void export_pose(FILE *out, int i)
 	} else {
 		if (KILL(scale.x) == 1 && KILL(scale.y) == 1 && KILL(scale.z) == 1)
 			fprintf(out, "pq %.9g %.9g %.9g %.9g %.9g %.9g %.9g\n",
-					KILL_0(translate.x), KILL_0(translate.y), KILL_0(translate.z),
+					KILL(translate.x), KILL(translate.y), KILL(translate.z),
 					(rotate.x), (rotate.y), (rotate.z), (rotate.w));
 		else
 			fprintf(out, "pq %.9g %.9g %.9g %.9g %.9g %.9g %.9g %.9g %.9g %.9g\n",
-					KILL_0(translate.x), KILL_0(translate.y), KILL_0(translate.z),
+					KILL(translate.x), KILL(translate.y), KILL(translate.z),
 					(rotate.x), (rotate.y), (rotate.z), (rotate.w),
 					KILL(scale.x), KILL(scale.y), KILL(scale.z));
 	}
 }
 
+void fix_pose(void)
+{
+	int i;
+
+	calc_abs_pose();
+
+	for (i = 0; i < numbones; i++) {
+		if (bonelist[i].isbone) {
+			// remove scaling factor in absolute pose
+			if (dounscale < 0) {
+				struct aiVector3D apos, ascale;
+				struct aiQuaternion arot;
+				aiDecomposeMatrix(&bonelist[i].abspose, &ascale, &arot, &apos);
+				bonelist[i].unscale[0] = ascale.x;
+				bonelist[i].unscale[1] = ascale.y;
+				bonelist[i].unscale[2] = ascale.z;
+				if (KILL(ascale.x) != 1 || KILL(ascale.y) != 1 || KILL(ascale.z) != 1)
+					fprintf(stderr, "unscaling %s: %g %g %g\n", bonelist[i].name, ascale.x, ascale.y, ascale.z);
+			}
+			if (dounscale) {
+				float x = bonelist[i].unscale[0];
+				float y = bonelist[i].unscale[1];
+				float z = bonelist[i].unscale[2];
+				if (KILL(x) != 1 || KILL(y) != 1 || KILL(z) != 1) {
+					bonelist[i].abspose.a1 /= x; bonelist[i].abspose.b1 /= x; bonelist[i].abspose.c1 /= x;
+					bonelist[i].abspose.a2 /= y; bonelist[i].abspose.b2 /= y; bonelist[i].abspose.c2 /= y;
+					bonelist[i].abspose.a3 /= z; bonelist[i].abspose.b3 /= z; bonelist[i].abspose.c3 /= z;
+				}
+			}
+
+			// flip axis in absolute pose
+			if (doaxis)
+				aiMultiplyMatrix4(&bonelist[i].abspose, &axis_x_to_y);
+
+			// ...and invert so we can recalculate the local poses
+			aiInverseMatrix(&bonelist[i].invpose, &bonelist[i].abspose);
+
+			// ...and recalculate the local pose
+			bonelist[i].pose = bonelist[i].abspose;
+			if (bonelist[i].parent >= 0) {
+				struct aiMatrix4x4 m = bonelist[bonelist[i].parent].invpose;
+				aiMultiplyMatrix4(&m, &bonelist[i].pose);
+				bonelist[i].pose = m;
+			}
+
+			// ...and make sure we have it in decomposed form
+			aiDecomposeMatrix(&bonelist[i].pose, &bonelist[i].scale, &bonelist[i].rotate, &bonelist[i].translate);
+		}
+	}
+}
+
+void export_pose(FILE *out)
+{
+	int i;
+
+	if (doaxis || dounscale)
+		fix_pose();
+
+	for (i = 0; i < numbones; i++)
+		if (bonelist[i].isbone)
+			//export_pm(out, i);
+			export_pq(out, i);
+}
+
 void export_bone_list(FILE *out)
 {
-	int i, n = 0;
+	int i, n;
+
+	for (n = i = 0; i < numbones; i++) if (bonelist[i].isbone) n++;
+	fprintf(stderr, "exporting skeleton: %d bones\n", n);
 
 	fprintf(out, "\n");
 	for (i = 0; i < numbones; i++) {
 		if (bonelist[i].isbone) {
-			n++;
 			if (bonelist[i].parent >= 0)
 				fprintf(out, "joint %s %d\n",
 					clean_node_name(bonelist[i].name),
@@ -490,37 +627,24 @@ void export_bone_list(FILE *out)
 		}
 	}
 
-	fprintf(stderr, "exporting skeleton: %d bones\n", n);
+	if (dounscale) fprintf(stderr, "removing scaling factors from bind pose\n");
+	if (doaxis) fprintf(stderr, "flipping bone axis from x to y\n");
 
 	fprintf(out, "\n");
-	for (i = 0; i < numbones; i++) {
-		if (bonelist[i].isbone) {
-			aiDecomposeMatrix(&bonelist[i].pose, &bonelist[i].scale, &bonelist[i].rotate, &bonelist[i].translate);
-			export_pose(out, i);
-		}
-	}
+	if (dounscale) dounscale = -1;
+	export_pose(out);
+	if (dounscale) dounscale = 1;
 }
 
-void export_frame(FILE *out, const struct aiAnimation *anim, int frame)
+void export_static_animation(FILE *out, const struct aiScene *scene)
 {
-	int i;
-	for (i = 0; i < anim->mNumChannels; i++) {
-		struct aiNodeAnim *chan = anim->mChannels[i];
-		int a = find_bone(chan->mNodeName.data);
-		int tframe = MIN(frame, chan->mNumPositionKeys - 1);
-		int rframe = MIN(frame, chan->mNumRotationKeys - 1);
-		int sframe = MIN(frame, chan->mNumScalingKeys - 1);
-		bonelist[a].translate = chan->mPositionKeys[tframe].mValue;
- 		bonelist[a].rotate = chan->mRotationKeys[rframe].mValue;
- 		bonelist[a].scale = chan->mScalingKeys[sframe].mValue;
-	}
-
+	fprintf(stderr, "exporting animation: static rest pose\n");
 	fprintf(out, "\n");
+	fprintf(out, "\nanimation %s\n", basename);
+	fprintf(out, "framerate 30\n");
 	fprintf(out, "frame\n");
-	for (i = 0; i < numbones; i++) {
-		if (bonelist[i].isbone)
-			export_pose(out, i);
-	}
+	apply_initial_frame();
+	export_pose(out);
 }
 
 int animation_length(const struct aiAnimation *anim)
@@ -535,19 +659,41 @@ int animation_length(const struct aiAnimation *anim)
 	return len;
 }
 
-void export_static_animation(FILE *out, const struct aiScene *scene)
+void export_frame(FILE *out, const struct aiAnimation *anim, int frame)
 {
 	int i;
-	fprintf(stderr, "exporting animation: static rest pose\n");
+
+	// start with fresh matrices
 	apply_initial_frame();
-	fprintf(out, "\n");
-	fprintf(out, "\nanimation %s\n", basename);
-	fprintf(out, "framerate 30\n");
-	fprintf(out, "frame\n");
-	for (i = 0; i < numbones; i++) {
-		if (bonelist[i].isbone)
-			export_pose(out, i);
+
+	for (i = 0; i < anim->mNumChannels; i++) {
+		struct aiNodeAnim *chan = anim->mChannels[i];
+		int a = find_bone(chan->mNodeName.data);
+		int tframe = MIN(frame, chan->mNumPositionKeys - 1);
+		int rframe = MIN(frame, chan->mNumRotationKeys - 1);
+		int sframe = MIN(frame, chan->mNumScalingKeys - 1);
+		bonelist[a].translate = chan->mPositionKeys[tframe].mValue;
+		bonelist[a].rotate = chan->mRotationKeys[rframe].mValue;
+		bonelist[a].scale = chan->mScalingKeys[sframe].mValue;
+#ifdef HACK_MATRIX_KEY
+		bonelist[a].pose = chan->mRotationKeys[rframe].mMatrixValue;
+#endif
 	}
+
+#ifndef HACK_MATRIX_KEY
+	// translate/rotate/scale have changed: recompute pose
+	for (i = 0; i < numbones; i++) {
+		if (bonelist[i].isbone) {
+			// make sure we're not hit by precision issues in decomposematrix
+			aiNormalizeQuaternion(&bonelist[i].rotate);
+			aiComposeMatrix(&bonelist[i].pose, &bonelist[i].scale, &bonelist[i].rotate, &bonelist[i].translate);
+		}
+	}
+#endif
+
+	fprintf(out, "\n");
+	fprintf(out, "frame %d\n", frame);
+	export_pose(out);
 }
 
 void export_animations(FILE *out, const struct aiScene *scene)
@@ -563,7 +709,6 @@ void export_animations(FILE *out, const struct aiScene *scene)
 		fprintf(out, "framerate 30\n");
 		len = animation_length(anim);
 		fprintf(stderr, "exporting animation %d: %d frames\n", i+1, len);
-		apply_initial_frame();
 		for (k = 0; k < len; k++)
 			export_frame(out, anim, k);
 	}
@@ -595,13 +740,7 @@ void bake_mesh_skin(const struct aiMesh *mesh)
 	memset(outpos, 0, mesh->mNumVertices * sizeof *outpos);
 	memset(outnorm, 0, mesh->mNumVertices * sizeof *outpos);
 
-	for (i = 0; i < numbones; i++) {
-		bonelist[i].abspose = bonelist[i].pose;
-		if (bonelist[i].parent >= 0) {
-			bonelist[i].abspose = bonelist[bonelist[i].parent].abspose;
-			aiMultiplyMatrix4(&bonelist[i].abspose, &bonelist[i].pose);
-		}
-	}
+	calc_abs_pose();
 
 	for (i = 0; i < mesh->mNumBones; i++) {
 		b = find_bone(mesh->mBones[i]->mName.data);
@@ -788,6 +927,8 @@ void usage()
 	fprintf(stderr, "\t-f -- export counter-clockwise winding triangles\n");
 	fprintf(stderr, "\t-r -- export rigid nodes too (experimental)\n");
 	fprintf(stderr, "\t-l -- low precision mode (for smaller animation files)\n");
+	fprintf(stderr, "\t-x -- flip bone orientation from x to y\n");
+	fprintf(stderr, "\t-s -- remove scaling from bind pose\n");
 	fprintf(stderr, "\t-o filename -- save output to file\n");
 	exit(1);
 }
@@ -804,7 +945,7 @@ int main(int argc, char **argv)
 	int onlyanim = 0;
 	int onlymesh = 0;
 
-	while ((c = getopt(argc, argv, "Aabflmo:rv")) != -1) {
+	while ((c = getopt(argc, argv, "Aabflmo:rvxs")) != -1) {
 		switch (c) {
 		case 'A': save_all_bones++; break;
 		case 'a': onlyanim = 1; break;
@@ -815,6 +956,8 @@ int main(int argc, char **argv)
 		case 'r': dorigid = 1; break;
 		case 'l': dolowprec = 1; break;
 		case 'v': verbose++; break;
+		case 'x': doaxis = 1; break;
+		case 's': dounscale = 1; break;
 		default: usage(); break;
 		}
 	}
@@ -861,9 +1004,12 @@ int main(int argc, char **argv)
 	// Convert to Z-UP coordinate system
 	aiMultiplyMatrix4(&scene->mRootNode->mTransformation, &yup_to_zup);
 
+	// Build a list of bones and compute the bind pose matrices.
 	if (build_bone_list(scene) > 0)
 		dobone = 1;
 
+	// Mesh is split with incompatible bind matrices, so pick a new
+	// bind pose and deform the mesh to fit.
 	if (need_to_bake_skin) {
 		apply_initial_frame(); // ditch original bind pose
 		bake_scene_skin(scene);

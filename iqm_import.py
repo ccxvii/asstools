@@ -463,15 +463,6 @@ def make_anim(iqmodel, anim, amtobj, bone_axis):
 	for n in range(len(anim.frames)):
 		make_pose(iqmodel, anim.frames[n], amtobj, bone_axis, n)
 
-	# ugh, ugly hack to get the right context for bpy.ops
-	if bpy.context.area:
-		saved_area_type = bpy.context.area.type
-		bpy.context.area.type = 'DOPESHEET_EDITOR'
-		bpy.ops.action.clean(threshold=0.00001)
-		bpy.context.area.type = saved_area_type
-	else:
-		print("No window, can't select action context to clean keyframes.")
-
 #
 # Create simple material by looking at the magic words.
 # Use the last word as a texture name by appending ".png".
