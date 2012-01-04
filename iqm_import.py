@@ -2,11 +2,12 @@
 
 bl_info = {
 	"name": "Import Inter-Quake Model (.iqm, .iqe)",
+	"description": "Import Inter-Quake and Inter-Quake Export models.",
 	"author": "Tor Andersson",
-	"version": (0, 1),
+	"version": (2012, 1, 4),
 	"blender": (2, 6, 0),
 	"location": "File > Import > Inter-Quake Model",
-	"description": "Import Inter-Quake model with vertex colors and armature.",
+	"wiki_url": "http://github.com/ccxvii/asstools",
 	"category": "Import-Export",
 }
 
@@ -402,6 +403,7 @@ def make_armature(iqmodel, bone_axis):
 	bpy.context.scene.objects.link(obj)
 	bpy.context.scene.objects.active = obj
 
+	obj.show_x_ray = True
 	amt.use_deform_envelopes = False
 
 	bpy.ops.object.mode_set(mode='EDIT')
@@ -447,11 +449,12 @@ def make_armature(iqmodel, bone_axis):
 def make_pose(iqmodel, frame, amtobj, bone_axis, tick):
 	loc_pose_mat, _ = calc_pose_mats(iqmodel, frame, bone_axis)
 	for n in range(len(iqmodel.bones)):
+		name = iqmodel.bones[n].name
 		pose_bone = amtobj.pose.bones[n]
 		pose_bone.matrix_basis = iqmodel.inv_loc_bind_mat[n] * loc_pose_mat[n]
-		pose_bone.keyframe_insert(data_path='location', frame=tick)
-		pose_bone.keyframe_insert(data_path='rotation_quaternion', frame=tick)
-		pose_bone.keyframe_insert(data_path='scale', frame=tick)
+		pose_bone.keyframe_insert(group=name, frame=tick, data_path='location')
+		pose_bone.keyframe_insert(group=name, frame=tick, data_path='rotation_quaternion')
+		pose_bone.keyframe_insert(group=name, frame=tick, data_path='scale')
 
 def make_anim(iqmodel, anim, amtobj, bone_axis):
 	print("importing animation %s with %d frames" % (anim.name, len(anim.frames)))
@@ -462,11 +465,21 @@ def make_anim(iqmodel, anim, amtobj, bone_axis):
 		make_pose(iqmodel, anim.frames[n], amtobj, bone_axis, n)
 	return action
 
-def make_actions(iqmodel, amtobj, bone_axis):
+def make_actions(iqmodel, amtobj, bone_axis, use_nla_tracks):
 	bpy.context.scene.frame_start = 0
 	amtobj.animation_data_create()
+	if use_nla_tracks:
+		track = amtobj.animation_data.nla_tracks.new()
+		track.name = "All"
+		n = 0
 	for anim in iqmodel.anims:
 		action = make_anim(iqmodel, anim, amtobj, bone_axis)
+		if use_nla_tracks:
+			track.strips.new(action.name, n, action)
+			n = track.strips[-1].frame_end + 1
+	if use_nla_tracks:
+		amtobj.animation_data.action = None
+		bpy.context.scene.frame_end = n - 1
 
 #
 # Create simple material by looking at the magic words.
@@ -619,7 +632,7 @@ def make_mesh(iqmodel, iqmesh, amtobj, dir):
 # Otherwise create an empty object and group the meshes in that.
 #
 
-def make_model(iqmodel, bone_axis, dir):
+def make_model(iqmodel, bone_axis, dir, use_nla_tracks = False):
 	print("importing model", iqmodel.name)
 
 	for obj in bpy.context.scene.objects:
@@ -635,17 +648,17 @@ def make_model(iqmodel, bone_axis, dir):
 		meshobj.parent = amtobj if amtobj else grpobj
 
 	if len(iqmodel.anims) > 0:
-		make_actions(iqmodel, amtobj, bone_axis)
+		make_actions(iqmodel, amtobj, bone_axis, use_nla_tracks)
 
 	print("all done.")
 
-def import_iqm_file(filename, bone_axis='Y'):
+def import_iqm(filename, bone_axis='Y', use_nla_tracks=False):
 	if filename.endswith(".iqm") or filename.endswith(".IQM"):
 		iqmodel = load_iqm(filename)
 	else:
 		iqmodel = load_iqe(filename)
 	dir = os.path.dirname(filename)
-	make_model(iqmodel, bone_axis, dir)
+	make_model(iqmodel, bone_axis, dir, use_nla_tracks)
 	bpy.ops.screen.frame_jump()
 
 #
@@ -669,8 +682,12 @@ class ImportIQM(bpy.types.Operator, ImportHelper):
 			],
 			default='Y')
 
+	use_nla_tracks = BoolProperty(name="Create NLA track",
+			description="Create NLA track containing all actions.",
+			default=False)
+
 	def execute(self, context):
-		import_iqm_file(self.properties.filepath, self.bone_axis)
+		import_iqm(self.properties.filepath, self.bone_axis, self.properties.use_nla_tracks)
 		return {'FINISHED'}
 
 def menu_func(self, context):
@@ -687,9 +704,9 @@ def unregister():
 if __name__ == "__main__":
 	register()
 
-#import_iqm_file("ju_s3_banana_tree.iqe")
-#import_iqm_file("tr_mo_kami_fighter.iqe", 'Y')
-#import_iqm_file("tr_mo_kami_fighter_co_idle.iqe", 'Y')
-#import_iqm_file("zo_mo_gibbai_marche.iqm", 'X')
-#import_iqm_file("tr_mo_crustace_idle.iqe", 'X')
-#import_iqm_file("pr_mo_phytopsy_mort.iqe", 'Y')
+#import_iqm("ju_s3_banana_tree.iqe")
+#import_iqm("tr_mo_kami_fighter.iqe", 'Y')
+#import_iqm("tr_mo_kami_fighter_co_idle.iqe", 'Y')
+#import_iqm("zo_mo_gibbai_marche.iqm", 'X')
+import_iqm("tr_mo_crustace_idle.iqe", 'X', True)
+#import_iqm("pr_mo_phytopsy_mort.iqe", 'Y')
