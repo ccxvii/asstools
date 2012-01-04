@@ -448,20 +448,25 @@ def make_pose(iqmodel, frame, amtobj, bone_axis, tick):
 	loc_pose_mat, _ = calc_pose_mats(iqmodel, frame, bone_axis)
 	for n in range(len(iqmodel.bones)):
 		pose_bone = amtobj.pose.bones[n]
-		matrix_basis = iqmodel.inv_loc_bind_mat[n] * loc_pose_mat[n]
-		pose_bone.matrix_basis = matrix_basis
+		pose_bone.matrix_basis = iqmodel.inv_loc_bind_mat[n] * loc_pose_mat[n]
 		pose_bone.keyframe_insert(data_path='location', frame=tick)
 		pose_bone.keyframe_insert(data_path='rotation_quaternion', frame=tick)
 		pose_bone.keyframe_insert(data_path='scale', frame=tick)
 
 def make_anim(iqmodel, anim, amtobj, bone_axis):
 	print("importing animation %s with %d frames" % (anim.name, len(anim.frames)))
-	bpy.context.scene.render.fps = anim.framerate
-	amtobj.animation_data_create()
 	action = bpy.data.actions.new(abbr(anim.name))
+	action.use_fake_user = True
 	amtobj.animation_data.action = action
 	for n in range(len(anim.frames)):
 		make_pose(iqmodel, anim.frames[n], amtobj, bone_axis, n)
+	return action
+
+def make_actions(iqmodel, amtobj, bone_axis):
+	bpy.context.scene.frame_start = 0
+	amtobj.animation_data_create()
+	for anim in iqmodel.anims:
+		action = make_anim(iqmodel, anim, amtobj, bone_axis)
 
 #
 # Create simple material by looking at the magic words.
@@ -629,8 +634,8 @@ def make_model(iqmodel, bone_axis, dir):
 		meshobj = make_mesh(iqmodel, iqmesh, amtobj, dir)
 		meshobj.parent = amtobj if amtobj else grpobj
 
-	for anim in iqmodel.anims:
-		make_anim(iqmodel, anim, amtobj, bone_axis)
+	if len(iqmodel.anims) > 0:
+		make_actions(iqmodel, amtobj, bone_axis)
 
 	print("all done.")
 
@@ -683,6 +688,7 @@ if __name__ == "__main__":
 	register()
 
 #import_iqm_file("ju_s3_banana_tree.iqe")
+#import_iqm_file("tr_mo_kami_fighter.iqe", 'Y')
 #import_iqm_file("tr_mo_kami_fighter_co_idle.iqe", 'Y')
 #import_iqm_file("zo_mo_gibbai_marche.iqm", 'X')
 #import_iqm_file("tr_mo_crustace_idle.iqe", 'X')
