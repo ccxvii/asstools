@@ -27,7 +27,7 @@ int dobone = 0; // export skeleton
 int doflip = 1; // export flipped (quake-style clockwise winding) triangles
 
 int doaxis = 0; // flip bone axis from X to Y to match blender
-int dounscale = 0; // remove scaling from bind pose
+int dounscale = 0; // remove negative scaling from bind pose
 
 // We use %.9g to print floats with 9 digits of precision which
 // is enough to represent a 32-bit float accurately, while still
@@ -53,6 +53,13 @@ static struct aiMatrix4x4 axis_x_to_y = {
 	0, 1, 0, 0,
 	-1, 0, 0, 0,
 	0, 0, 1, 0,
+	0, 0, 0, 1
+};
+
+static struct aiMatrix4x4 scale_negative = {
+	-1, 0, 0, 0,
+	0, -1, 0, 0,
+	0, 0, -1, 0,
 	0, 0, 0, 1
 };
 
@@ -184,7 +191,6 @@ struct bone {
 	int isskin;
 	int isrigid;
 	char *reason; // reason for selecting
-	float unscale[3]; // inverse of scaling factor in bind pose
 
 	// scratch matrices for inverse bind pose and absolute bind pose
 	struct aiMatrix4x4 invpose; // inv(parent * pose)
@@ -396,7 +402,7 @@ void mark_skinned_bones(const struct aiScene *scene)
 				bonelist[b].reason = "skinned";
 				bonelist[b].invpose = mesh->mBones[a]->mOffsetMatrix;
 				bonelist[b].isbone = 1;
-				bonelist[b].isskin = 1;
+				bonelist[b].isskin = domesh;
 			} else if (!need_to_bake_skin) {
 				if (memcmp(&bonelist[b].invpose, &mesh->mBones[a]->mOffsetMatrix, sizeof bonelist[b].invpose))
 					need_to_bake_skin = 1;
@@ -552,27 +558,9 @@ void fix_pose(void)
 
 	for (i = 0; i < numbones; i++) {
 		if (bonelist[i].isbone) {
-			// remove scaling factor in absolute pose
-			if (dounscale < 0) {
-				struct aiVector3D apos, ascale;
-				struct aiQuaternion arot;
-				aiDecomposeMatrix(&bonelist[i].abspose, &ascale, &arot, &apos);
-				bonelist[i].unscale[0] = ascale.x;
-				bonelist[i].unscale[1] = ascale.y;
-				bonelist[i].unscale[2] = ascale.z;
-				if (KILL(ascale.x) != 1 || KILL(ascale.y) != 1 || KILL(ascale.z) != 1)
-					fprintf(stderr, "unscaling %s: %g %g %g\n", bonelist[i].name, ascale.x, ascale.y, ascale.z);
-			}
-			if (dounscale) {
-				float x = bonelist[i].unscale[0];
-				float y = bonelist[i].unscale[1];
-				float z = bonelist[i].unscale[2];
-				if (KILL(x) != 1 || KILL(y) != 1 || KILL(z) != 1) {
-					bonelist[i].abspose.a1 /= x; bonelist[i].abspose.b1 /= x; bonelist[i].abspose.c1 /= x;
-					bonelist[i].abspose.a2 /= y; bonelist[i].abspose.b2 /= y; bonelist[i].abspose.c2 /= y;
-					bonelist[i].abspose.a3 /= z; bonelist[i].abspose.b3 /= z; bonelist[i].abspose.c3 /= z;
-				}
-			}
+			// remove negative scaling factor in absolute pose
+			if (dounscale && aiDeterminant(&bonelist[i].abspose) < 0)
+				aiMultiplyMatrix4(&bonelist[i].abspose, &scale_negative);
 
 			// flip axis in absolute pose
 			if (doaxis)
@@ -627,13 +615,11 @@ void export_bone_list(FILE *out)
 		}
 	}
 
-	if (dounscale) fprintf(stderr, "removing scaling factors from bind pose\n");
+	if (dounscale) fprintf(stderr, "removing negative scaling factors from bind pose\n");
 	if (doaxis) fprintf(stderr, "flipping bone axis from x to y\n");
 
 	fprintf(out, "\n");
-	if (dounscale) dounscale = -1;
 	export_pose(out);
-	if (dounscale) dounscale = 1;
 }
 
 void export_static_animation(FILE *out, const struct aiScene *scene)
