@@ -309,6 +309,25 @@ def select_meshes(model, meshnames):
 				bucket[mesh] = 1
 	model.meshes = bucket.keys()
 
+# Copy bind pose from one file to another, matching by bone names.
+
+def make_bone_map(target, source):
+	remap = {}
+	for i in range(len(target.bones)):
+		tname = target.bones[i][0]
+		for k in range(len(source.bones)):
+			sname = source.bones[k][0]
+			if sname == tname:
+				remap[i] = k
+	return remap
+
+def copy_bind_pose(target, source):
+	remap = make_bone_map(target, source)
+	for i in range(len(target.bones)):
+		if i in remap:
+			k = remap[i]
+			target.bindpose[i] = source.bindpose[k]
+
 if __name__ == "__main__":
 	for filename in sys.argv[1:]:
 		load_model(open(filename)).save(sys.stdout)
