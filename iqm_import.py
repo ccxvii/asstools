@@ -701,13 +701,16 @@ def unregister():
 	bpy.utils.unregister_module(__name__)
 	bpy.types.INFO_MT_file_import.remove(menu_func)
 
+def batch(input):
+	for obj in bpy.context.scene.objects:
+		bpy.context.scene.objects.unlink(obj)
+	output = os.path.splitext(input)[0] + ".blend"
+	import_iqm(input)
+	print("Saving", output)
+	bpy.ops.wm.save_mainfile(filepath=output, check_existing=False)
+
 if __name__ == "__main__":
 	register()
-
-#import_iqm("ju_s3_banana_tree.iqe")
-#import_iqm("tr_mo_kami_fighter.iqe", 'Y')
-#import_iqm("tr_mo_kami_fighter_co_idle.iqe", 'Y')
-#import_iqm("zo_mo_gibbai_marche.iqm", 'X')
-#import_iqm("tr_mo_crustace_idle.iqe", 'X', True)
-#import_iqm("pr_mo_phytopsy_mort.iqe", 'Y')
-#import_iqm("tr_mo_jungler.iqm", 'X')
+	INPUT = os.getenv("INPUT")
+	if INPUT:
+		batch(INPUT)
