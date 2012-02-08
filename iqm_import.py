@@ -18,12 +18,6 @@ from bpy_extras.io_utils import ImportHelper
 from bpy_extras.image_utils import load_image
 from mathutils import Matrix, Quaternion, Vector
 
-def abbr(name):
-	BLENDER_MAX_NAME_LEN = 21
-	if len(name) > BLENDER_MAX_NAME_LEN:
-		name = name[-BLENDER_MAX_NAME_LEN:]
-	return name
-
 # see blenkernel/intern/armature.c for vec_roll_to_mat3
 # see blenkernel/intern/armature.c for mat3_to_vec_roll
 # see makesrna/intern/rna_armature.c for rna_EditBone_matrix_get
@@ -398,8 +392,8 @@ def make_armature(iqmodel, bone_axis):
 
 	print("importing armature with %d bones" % len(iqmodel.bones))
 
-	amt = bpy.data.armatures.new("Skeleton")
-	obj = bpy.data.objects.new(abbr(iqmodel.name), amt)
+	amt = bpy.data.armatures.new(iqmodel.name)
+	obj = bpy.data.objects.new(iqmodel.name, amt)
 	bpy.context.scene.objects.link(obj)
 	bpy.context.scene.objects.active = obj
 
@@ -458,7 +452,7 @@ def make_pose(iqmodel, frame, amtobj, bone_axis, tick):
 
 def make_anim(iqmodel, anim, amtobj, bone_axis):
 	print("importing animation %s with %d frames" % (anim.name, len(anim.frames)))
-	action = bpy.data.actions.new(abbr(anim.name))
+	action = bpy.data.actions.new(anim.name)
 	action.use_fake_user = True
 	amtobj.animation_data.action = action
 	for n in range(len(anim.frames)):
@@ -547,8 +541,8 @@ def make_mesh(iqmodel, iqmesh, amtobj, dir):
 	print("importing mesh %s with %d vertices and %d faces" %
 		(iqmesh.name, len(iqmesh.positions), len(iqmesh.faces)))
 
-	mesh = bpy.data.meshes.new(abbr(iqmesh.name))
-	obj = bpy.data.objects.new(abbr(iqmesh.name), mesh)
+	mesh = bpy.data.meshes.new(iqmesh.name)
+	obj = bpy.data.objects.new(iqmesh.name, mesh)
 	bpy.context.scene.objects.link(obj)
 	bpy.context.scene.objects.active = obj
 
@@ -638,17 +632,23 @@ def make_model(iqmodel, bone_axis, dir, use_nla_tracks = False):
 	for obj in bpy.context.scene.objects:
 		obj.select = False
 
+	group = bpy.data.groups.new(iqmodel.name)
+
 	amtobj = make_armature(iqmodel, bone_axis)
 	if not amtobj:
-		grpobj = bpy.data.objects.new(abbr(iqmodel.name), None)
-		bpy.context.scene.objects.link(grpobj)
+		amtobj = bpy.data.objects.new(iqmodel.name, None)
+		bpy.context.scene.objects.link(amtobj)
+	group.objects.link(amtobj)
 
 	for iqmesh in iqmodel.meshes:
 		meshobj = make_mesh(iqmodel, iqmesh, amtobj, dir)
-		meshobj.parent = amtobj if amtobj else grpobj
+		meshobj.parent = amtobj
+		group.objects.link(meshobj)
 
 	if len(iqmodel.anims) > 0:
 		make_actions(iqmodel, amtobj, bone_axis, use_nla_tracks)
+
+	amtobj.select = True
 
 	print("all done.")
 
@@ -708,5 +708,6 @@ if __name__ == "__main__":
 #import_iqm("tr_mo_kami_fighter.iqe", 'Y')
 #import_iqm("tr_mo_kami_fighter_co_idle.iqe", 'Y')
 #import_iqm("zo_mo_gibbai_marche.iqm", 'X')
-import_iqm("tr_mo_crustace_idle.iqe", 'X', True)
+#import_iqm("tr_mo_crustace_idle.iqe", 'X', True)
 #import_iqm("pr_mo_phytopsy_mort.iqe", 'Y')
+#import_iqm("tr_mo_jungler.iqm", 'X')
