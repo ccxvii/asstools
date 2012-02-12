@@ -610,7 +610,9 @@ def make_mesh(iqmodel, iqmesh, amtobj, dir):
 
 	image = make_material(mesh, iqmesh.material, dir)
 
-	# update faces to point to the texture image
+	# Link uvlayer to image for uv/image editor and 3d view.
+	# This is needed to display the texture in the 3d view in
+	# solid texture and non-glsl modes.
 	if len(iqmesh.texcoords) == len(iqmesh.positions):
 		for data in uvlayer.data:
 			data.image = image
