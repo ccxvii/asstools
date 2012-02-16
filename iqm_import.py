@@ -487,6 +487,11 @@ def make_material(mesh, iqmaterial, dir):
 	texname = iqmaterial[-1]
 	if not "." in texname: texname += ".png"
 
+	# reuse materials if possible
+	if matname in bpy.data.materials:
+		mesh.materials.append(bpy.data.materials[matname])
+		return images[texname]
+
 	print("importing material", matname)
 
 	twosided = 'twosided' in iqmaterial
@@ -496,9 +501,8 @@ def make_material(mesh, iqmaterial, dir):
 
 	if not texname in images:
 		images[texname] = load_image(texname, dir, place_holder=True, recursive=True)
+		images[texname].use_premultiply = True
 	image = images[texname]
-
-	# if image: image.use_premultiply = True
 
 	tex = bpy.data.textures.new(matname, type = 'IMAGE')
 	tex.image = image
@@ -507,13 +511,15 @@ def make_material(mesh, iqmaterial, dir):
 	mat = bpy.data.materials.new(matname)
 	mat.specular_intensity = 0
 
-	matslot = mat.texture_slots.add()
-	matslot.texture = tex
-	matslot.texture_coords = 'UV'
-	matslot.use_map_color_diffuse = True
-	matslot.use_map_alpha = True
+	texslot = mat.texture_slots.add()
+	texslot.texture = tex
+	texslot.texture_coords = 'UV'
+	texslot.uv_layer = "UVMap"
+	texslot.use_map_color_diffuse = True
+	texslot.use_map_alpha = True
 
 	mesh.show_double_sided = twosided
+	mat.game_settings.use_backface_culling = not twosided
 
 	if unlit:
 		mat.use_shadeless = True
@@ -521,9 +527,10 @@ def make_material(mesh, iqmaterial, dir):
 	if alphatest:
 		mat.use_transparency = True
 		mat.alpha = 0.0
+		mat.game_settings.alpha_blend = 'CLIP'
 
 	if alphagloss:
-		matslot.use_map_specular = True
+		texslot.use_map_specular = True
 
 	# Vertices are linked to material 0 by default,
 	# so this should be enough.
@@ -569,7 +576,7 @@ def make_mesh(iqmodel, iqmesh, amtobj, dir):
 	# Texture coords
 
 	if len(iqmesh.texcoords) == len(iqmesh.positions):
-		uvlayer = mesh.uv_textures.new()
+		uvlayer = mesh.uv_textures.new("UVMap")
 		for n in range(len(mesh.faces)):
 			a, b, c = mesh.faces[n].vertices
 			data = uvlayer.data[n]
@@ -637,20 +644,20 @@ def make_model(iqmodel, bone_axis, dir, use_nla_tracks = False):
 	group = bpy.data.groups.new(iqmodel.name)
 
 	amtobj = make_armature(iqmodel, bone_axis)
-	if not amtobj:
+	if not amtobj and len(iqmodel.meshes) > 1:
 		amtobj = bpy.data.objects.new(iqmodel.name, None)
 		bpy.context.scene.objects.link(amtobj)
-	group.objects.link(amtobj)
+	if amtobj:
+		group.objects.link(amtobj)
 
 	for iqmesh in iqmodel.meshes:
 		meshobj = make_mesh(iqmodel, iqmesh, amtobj, dir)
-		meshobj.parent = amtobj
+		if amtobj:
+			meshobj.parent = amtobj
 		group.objects.link(meshobj)
 
 	if len(iqmodel.anims) > 0:
 		make_actions(iqmodel, amtobj, bone_axis, use_nla_tracks)
-
-	amtobj.select = True
 
 	print("all done.")
 
@@ -706,8 +713,18 @@ def unregister():
 def batch(input):
 	for obj in bpy.context.scene.objects:
 		bpy.context.scene.objects.unlink(obj)
+		bpy.data.objects.remove(obj)
 	output = os.path.splitext(input)[0] + ".blend"
 	import_iqm(input)
+	print("Saving", output)
+	bpy.ops.wm.save_mainfile(filepath=output, check_existing=False)
+
+def batch_many(input, output):
+	for obj in bpy.context.scene.objects:
+		bpy.context.scene.objects.unlink(obj)
+		bpy.data.objects.remove(obj)
+	for f in input:
+		import_iqm(f)
 	print("Saving", output)
 	bpy.ops.wm.save_mainfile(filepath=output, check_existing=False)
 
@@ -716,3 +733,6 @@ if __name__ == "__main__":
 	INPUT = os.getenv("INPUT")
 	if INPUT:
 		batch(INPUT)
+
+#import glob
+#batch_many(glob.glob("d:/work/models/*/*.iqe"), "microveget.blend")
