@@ -4,14 +4,14 @@ bl_info = {
 	"name": "Import Inter-Quake Model (.iqm, .iqe)",
 	"description": "Import Inter-Quake and Inter-Quake Export models.",
 	"author": "Tor Andersson",
-	"version": (2012, 1, 4),
-	"blender": (2, 6, 0),
+	"version": (2012, 2, 19),
+	"blender": (2, 6, 2),
 	"location": "File > Import > Inter-Quake Model",
 	"wiki_url": "http://github.com/ccxvii/asstools",
 	"category": "Import-Export",
 }
 
-import bpy, math, shlex, struct, os
+import bpy, math, shlex, struct, os, sys
 
 from bpy.props import *
 from bpy_extras.io_utils import ImportHelper
@@ -38,12 +38,12 @@ def vec_roll_to_mat3(vec, roll):
 	return mat
 
 def mat3_to_vec_roll(mat):
-	vec = mat[1]
-	vecmat = vec_roll_to_mat3(mat[1], 0)
+	vec = mat.col[1]
+	vecmat = vec_roll_to_mat3(mat.col[1], 0)
 	vecmatinv = vecmat.copy()
 	vecmatinv.invert()
 	rollmat = vecmatinv * mat
-	roll = math.atan2(rollmat[2][0], rollmat[2][2])
+	roll = math.atan2(rollmat[0][2], rollmat[2][2])
 	return vec, roll
 
 #
@@ -509,7 +509,9 @@ def make_material(mesh, iqmaterial, dir):
 	tex.use_alpha = True
 
 	mat = bpy.data.materials.new(matname)
+	mat.diffuse_intensity = 1
 	mat.specular_intensity = 0
+	if alphatest: mat.alpha = 0.0
 
 	texslot = mat.texture_slots.add()
 	texslot.texture = tex
@@ -517,23 +519,18 @@ def make_material(mesh, iqmaterial, dir):
 	texslot.uv_layer = "UVMap"
 	texslot.use_map_color_diffuse = True
 	texslot.use_map_alpha = True
+	texslot.use_map_specular = alphagloss
 
 	mesh.show_double_sided = twosided
+	if unlit: mat.use_shadeless = True
+	if alphatest: mat.use_transparency = True
+
+	# blender game engine
 	mat.game_settings.use_backface_culling = not twosided
+	if alphatest: mat.game_settings.alpha_blend = 'CLIP'
+	if alphatest and unlit: mat.game_settings.alpha_blend = 'ADD'
 
-	if unlit:
-		mat.use_shadeless = True
-
-	if alphatest:
-		mat.use_transparency = True
-		mat.alpha = 0.0
-		mat.game_settings.alpha_blend = 'CLIP'
-
-	if alphagloss:
-		texslot.use_map_specular = True
-
-	# Vertices are linked to material 0 by default,
-	# so this should be enough.
+	# Vertices are linked to material 0 by default, so no need to assign.
 	mesh.materials.append(mat)
 
 	# return the image so we can link the uvlayer faces
@@ -710,19 +707,21 @@ def unregister():
 	bpy.utils.unregister_module(__name__)
 	bpy.types.INFO_MT_file_import.remove(menu_func)
 
-def batch(input):
-	for obj in bpy.context.scene.objects:
+def batch_zap():
+	if "Cube" in bpy.data.objects:
+		obj = bpy.data.objects['Cube']
 		bpy.context.scene.objects.unlink(obj)
 		bpy.data.objects.remove(obj)
+
+def batch(input):
+	batch_zap()
 	output = os.path.splitext(input)[0] + ".blend"
 	import_iqm(input)
 	print("Saving", output)
 	bpy.ops.wm.save_mainfile(filepath=output, check_existing=False)
 
 def batch_many(input, output):
-	for obj in bpy.context.scene.objects:
-		bpy.context.scene.objects.unlink(obj)
-		bpy.data.objects.remove(obj)
+	batch_zap()
 	for f in input:
 		import_iqm(f)
 	print("Saving", output)
@@ -730,9 +729,6 @@ def batch_many(input, output):
 
 if __name__ == "__main__":
 	register()
-	INPUT = os.getenv("INPUT")
-	if INPUT:
-		batch(INPUT)
-
-#import glob
-#batch_many(glob.glob("d:/work/models/*/*.iqe"), "microveget.blend")
+	if len(sys.argv) > 4 and sys.argv[3] == '--':
+		batch(sys.argv[4])
+	#batch_many(glob.glob("d:/work/models/*/*.iqe"), "microveget.blend")
