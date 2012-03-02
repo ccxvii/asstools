@@ -3,25 +3,37 @@
 import sys, math, struct
 
 iqm_va_type = {
-	0: "POSITION",
-	1: "TEXCOORD",
-	2: "NORMAL",
-	3: "TANGENT",
-	4: "BLENDINDEXES",
-	5: "BLENDWEIGHTS",
-	6: "COLOR",
+	0: "position",
+	1: "texcoord",
+	2: "normal",
+	3: "tangent",
+	4: "blendindexes",
+	5: "blendweights",
+	6: "color",
 	8: "reserved", 9: "reserved", 10: "reserved", 11: "reserved",
 	12: "reserved", 13: "reserved", 14: "reserved", 15: "reserved",
-	16: "CUSTOM0",
-	17: "CUSTOM1",
-	18: "CUSTOM2",
-	19: "CUSTOM3",
-	20: "CUSTOM4",
-	21: "CUSTOM5",
-	22: "CUSTOM6",
-	23: "CUSTOM7",
-	24: "CUSTOM8",
-	25: "CUSTOM9",
+	16: "custom0",
+	17: "custom1",
+	18: "custom2",
+	19: "custom3",
+	20: "custom4",
+	21: "custom5",
+	22: "custom6",
+	23: "custom7",
+	24: "custom8",
+	25: "custom9",
+}
+
+iqm_va_format = {
+	0: 'byte',
+	1: 'ubyte',
+	2: 'short',
+	3: 'ushort',
+	4: 'int',
+	5: 'uint',
+	6: 'half',
+	7: 'float',
+	8: 'double',
 }
 
 def cstr(text, ofs):
@@ -122,16 +134,25 @@ def load_array(file, format, size, offset, count):
 		list.append(comp)
 	return list
 
-def load_verts(file, num_vertexarrays, num_vertexes, ofs_vertexarrays):
+def load_verts(file, text, num_vertexarrays, num_vertexes, ofs_vertexarrays):
 	file.seek(ofs_vertexarrays)
+	print
+	custom = 16
 	valist = []
 	for x in range(num_vertexarrays):
 		va = struct.unpack("<5I", file.read(5*4))
 		valist += (va,)
-	verts = [None] * 10
+	verts = [None] * (16+10)
 	for type, flags, format, size, offset in valist:
-		print >>sys.stderr, "# vertex array: %s" % iqm_va_type[type]
+		if type < 16:
+			type_name = iqm_va_type[type]
+		else:
+			type_name = cstr(text, type - 16)
+			type = custom
+			custom = custom + 1
 		verts[type] = load_array(file, format, size, offset, num_vertexes)
+		if type >= 16: print "vertexarray", iqm_va_type[type], iqm_va_format[format], size, type_name
+		else: print "vertexarray", iqm_va_type[type], iqm_va_format[format], size
 	return verts
 
 def load_tris(file, num_triangles, ofs_triangles, ofs_adjacency):
@@ -147,6 +168,7 @@ def dump_verts(verts, first, count):
 		if verts[0]: print "vp", fmtv(verts[0][x])
 		if verts[1]: print "vt", fmtv(verts[1][x])
 		if verts[2]: print "vn", fmtv(verts[2][x])
+		if verts[3]: print "vx", fmtv(verts[3][x])
 		if verts[4] and verts[5]:
 			out = "vb"
 			for y in range(4):
@@ -156,6 +178,8 @@ def dump_verts(verts, first, count):
 			print out
 		if verts[6]:
 			print "vc", fmtb(verts[6][x])
+		for i in range(16, 16+10):
+			if verts[i]: print "v%d" % (i-16), fmtv(verts[i][x])
 
 def dump_tris(tris, first, count, fv):
 	for x in range(first, first+count):
@@ -212,9 +236,10 @@ def dump_iqm(file):
 	file.seek(ofs_text)
 	text = file.read(num_text);
 
-	dump_joints(file, text, num_joints, ofs_joints)
+	if ofs_joints:
+		dump_joints(file, text, num_joints, ofs_joints)
 	if ofs_vertexarrays:
-		verts = load_verts(file, num_vertexarrays, num_vertexes, ofs_vertexarrays)
+		verts = load_verts(file, text, num_vertexarrays, num_vertexes, ofs_vertexarrays)
 	if ofs_triangles:
 		tris = load_tris(file, num_triangles, ofs_triangles, ofs_adjacency)
 	if ofs_meshes:
