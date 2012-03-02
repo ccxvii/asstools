@@ -222,6 +222,12 @@ def backface_model(model):
 			extra.append(backface_mesh(mesh))
 	model.meshes += extra
 
+# Apply global scale to all mesh coords
+
+def scale_model(model, s):
+	for mesh in model.meshes:
+		mesh.positions = [(x*s,y*s,z*s) for x,y,z in mesh.positions]
+
 # Fix UV coords that have a clip region set. Ugh.
 # We can offset the origin, but then the repeat/wrapping fails.
 # We can offset the origin, and wrap the U/V coords, but then it wraps
@@ -327,6 +333,21 @@ def copy_bind_pose(target, source):
 		if i in remap:
 			k = remap[i]
 			target.bindpose[i] = source.bindpose[k]
+
+# Kill selected channels in an animation
+
+def kill_channels(model, kill_loc, kill_rot, kill_scl):
+	for anim in model.anims:
+		for frame in anim.frames:
+			for i in range(len(frame)):
+				name = model.bones[i][0]
+				p = frame[i]
+				a = model.bindpose[i]
+				if kill_loc(name): p = a[0:3] + p[3:7] + p[7:10]
+				if kill_rot(name): p = p[0:3] + a[3:7] + p[7:10]
+				if kill_scl(name): p = p[0:3] + p[3:7] + a[7:10]
+				frame[i] = p
+				if frame == anim.frames[0]: print >>sys.stderr, kill_loc(name), kill_rot(name), kill_scl(name), name
 
 if __name__ == "__main__":
 	for filename in sys.argv[1:]:
