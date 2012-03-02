@@ -3,13 +3,9 @@
 #include <string.h>
 #include <assert.h>
 
-#include <assimp.h>
-#include <aiMatrix4x4.h>
-#include <aiMatrix3x3.h>
-#include <aiColor4D.h>
-#include <aiVector3D.h>
-#include <aiPostProcess.h>
-#include <aiScene.h>
+#include <assimp/cimport.h>
+#include <assimp/scene.h>
+#include <assimp/postprocess.h>
 
 // ASS: winding = CCW
 // ASS: axis = Y-up, right handed (same as OpenGL)

@@ -23,14 +23,9 @@
 #define GL_SAMPLE_ALPHA_TO_COVERAGE 0x809E
 #endif
 
-#include <assimp.h>
-#include <aiColor4D.h>
-#include <aiConfig.h>
-#include <aiMatrix3x3.h>
-#include <aiMatrix4x4.h>
-#include <aiPostProcess.h>
-#include <aiScene.h>
-#include <aiVector3D.h>
+#include <assimp/cimport.h>
+#include <assimp/scene.h>
+#include <assimp/postprocess.h>
 
 #define MIN(a,b) ((a) < (b) ? (a) : (b))
 #define MAX(a,b) ((a) > (b) ? (a) : (b))
@@ -998,10 +993,6 @@ int main(int argc, char **argv)
 		flags |= aiProcess_GenUVCoords;
 		flags |= aiProcess_TransformUVCoords;
 		flags |= aiProcess_RemoveComponent;
-
-		aiSetImportPropertyInteger(AI_CONFIG_PP_RVC_FLAGS,
-			aiComponent_TANGENTS_AND_BITANGENTS |
-			aiComponent_COLORS);
 
 		strcpy(basedir, argv[1]);
 		char *p = strrchr(basedir, '/');
