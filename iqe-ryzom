@@ -9,8 +9,5 @@ if len(sys.argv) > 1:
 	matname = sys.argv[1]
 	a = load_material(open(matname))
 	annotate_model(m, a)
-	backface_model(m)
 
-delete_meshes(m, ["pacs*", "*_x,*", "*_x"])
-merge_meshes(m)
 m.save(sys.stdout)

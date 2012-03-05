@@ -11,8 +11,8 @@ AI_LIBS += -L../assimp/build/code -lassimp
 GL_LIBS += -framework GLUT -framework OpenGL -framework Cocoa
 endif
 ifeq "$(OS)" "Linux"
-AI_CFLAGS += -I../assimp/include
-AI_LIBS += -L../assimp/build/code -lassimp
+AI_CFLAGS += -I/usr/local/include
+AI_LIBS += -L/usr/local/lib -lassimp
 GL_LIBS += -lglut -lGL
 endif
 ifeq "$(OS)" "MINGW"

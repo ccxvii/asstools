@@ -501,7 +501,7 @@ def make_material(mesh, iqmaterial, dir):
 
 	if not texname in images:
 		images[texname] = load_image(texname, dir, place_holder=True, recursive=True)
-		images[texname].use_premultiply = True
+		#images[texname].use_premultiply = True
 	image = images[texname]
 
 	tex = bpy.data.textures.new(matname, type = 'IMAGE')
@@ -689,7 +689,7 @@ class ImportIQM(bpy.types.Operator, ImportHelper):
 			default='Y')
 
 	use_nla_tracks = BoolProperty(name="Create NLA track",
-			description="Create NLA track containing all actions.",
+			description="Create NLA track containing all actions",
 			default=False)
 
 	def execute(self, context):
@@ -729,6 +729,5 @@ def batch_many(input, output):
 
 if __name__ == "__main__":
 	register()
-	if len(sys.argv) > 4 and sys.argv[3] == '--':
-		batch(sys.argv[4])
-	#batch_many(glob.glob("d:/work/models/*/*.iqe"), "microveget.blend")
+	if len(sys.argv) > 4 and sys.argv[-2] == '--':
+		batch(sys.argv[-1])
