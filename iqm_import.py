@@ -4,7 +4,7 @@ bl_info = {
 	"name": "Import Inter-Quake Model (.iqm, .iqe)",
 	"description": "Import Inter-Quake and Inter-Quake Export models.",
 	"author": "Tor Andersson",
-	"version": (2012, 2, 19),
+	"version": (2012, 3, 11),
 	"blender": (2, 6, 2),
 	"location": "File > Import > Inter-Quake Model",
 	"wiki_url": "http://github.com/ccxvii/asstools",
@@ -135,7 +135,7 @@ def load_iqe(filename):
 			r,g,b = float(line[1]), float(line[2]), float(line[3])
 			curmesh.colors.append((r,g,b))
 		elif line[0] == "vb":
-			curmesh.blends.append([float(x) for x in line[1:]])
+			curmesh.blends.append(tuple([float(x) for x in line[1:]]))
 		elif line[0] == "fm":
 			a,b,c = int(line[1]), int(line[2]), int(line[3])
 			curmesh.faces.append((a,b,c))
@@ -272,7 +272,7 @@ def copy_iqm_verts(mesh, valist, first, count):
 				if valist[IQM_BLENDWEIGHTS][n][y] > 0:
 					vb.append(valist[IQM_BLENDINDEXES][n][y])
 					vb.append(valist[IQM_BLENDWEIGHTS][n][y]/255.0)
-			mesh.blends.append(vb)
+			mesh.blends.append(tuple(vb))
 
 def load_iqm_meshes(model, file, text, num_meshes, ofs_meshes, valist, triangles):
 	file.seek(ofs_meshes)
@@ -393,7 +393,7 @@ def make_armature(iqmodel, bone_axis):
 	print("importing armature with %d bones" % len(iqmodel.bones))
 
 	amt = bpy.data.armatures.new(iqmodel.name)
-	obj = bpy.data.objects.new(iqmodel.name, amt)
+	obj = bpy.data.objects.new(iqmodel.name + ".amt", amt)
 	bpy.context.scene.objects.link(obj)
 	bpy.context.scene.objects.active = obj
 
@@ -482,26 +482,25 @@ def make_actions(iqmodel, amtobj, bone_axis, use_nla_tracks):
 
 images = {}
 
-def make_material(mesh, iqmaterial, dir):
+def make_material(iqmaterial, dir):
 	matname = "+".join(iqmaterial)
 	texname = iqmaterial[-1]
 	if not "." in texname: texname += ".png"
 
 	# reuse materials if possible
 	if matname in bpy.data.materials:
-		mesh.materials.append(bpy.data.materials[matname])
-		return images[texname]
+		return bpy.data.materials[matname], images[texname]
 
 	print("importing material", matname)
 
 	twosided = 'twosided' in iqmaterial
 	alphatest = 'alphatest' in iqmaterial
-	alphagloss = 'alphagloss' in iqmaterial
 	unlit = 'unlit' in iqmaterial
 
 	if not texname in images:
+		print("load image", texname)
 		images[texname] = load_image(texname, dir, place_holder=True, recursive=True)
-		#images[texname].use_premultiply = True
+		images[texname].use_premultiply = True
 	image = images[texname]
 
 	tex = bpy.data.textures.new(matname, type = 'IMAGE')
@@ -511,7 +510,7 @@ def make_material(mesh, iqmaterial, dir):
 	mat = bpy.data.materials.new(matname)
 	mat.diffuse_intensity = 1
 	mat.specular_intensity = 0
-	if alphatest: mat.alpha = 0.0
+	mat.alpha = 0.0
 
 	texslot = mat.texture_slots.add()
 	texslot.texture = tex
@@ -519,29 +518,163 @@ def make_material(mesh, iqmaterial, dir):
 	texslot.uv_layer = "UVMap"
 	texslot.use_map_color_diffuse = True
 	texslot.use_map_alpha = True
-	texslot.use_map_specular = alphagloss
 
-	mesh.show_double_sided = twosided
 	if unlit: mat.use_shadeless = True
-	if alphatest: mat.use_transparency = True
+	mat.use_transparency = True
 
 	# blender game engine
 	mat.game_settings.use_backface_culling = not twosided
-	if alphatest: mat.game_settings.alpha_blend = 'CLIP'
+	mat.game_settings.alpha_blend = 'CLIP'
 	if alphatest and unlit: mat.game_settings.alpha_blend = 'ADD'
 
-	# Vertices are linked to material 0 by default, so no need to assign.
-	mesh.materials.append(mat)
-
-	# return the image so we can link the uvlayer faces
-	return image
+	# return the material (and image so we can link the uvlayer faces)
+	return mat, image
 
 #
 # Create mesh object with normals, texcoords, vertex colors,
 # and an armature modifier if the model is skinned.
 #
 
-def make_mesh(iqmodel, iqmesh, amtobj, dir):
+def gather_meshes(iqmodel):
+	meshes = {}
+	for mesh in iqmodel.meshes:
+		if mesh.name not in meshes:
+			meshes[mesh.name] = [ mesh ]
+		else:
+			meshes[mesh.name] += [ mesh ]
+	return meshes
+
+def cmpco(a,b):
+	if abs(a[0] - b[0]) > 0.00001: return False
+	if abs(a[1] - b[1]) > 0.00001: return False
+	if abs(a[2] - b[2]) > 0.00001: return False
+	return True
+
+def reorder(mesh, n, iqmesh, iq_a, iq_b, iq_c):
+	iq_a_co = iqmesh.positions[iq_a]
+	iq_b_co = iqmesh.positions[iq_b]
+	iq_c_co = iqmesh.positions[iq_c]
+	py_a, py_b, py_c = mesh.faces[n].vertices[0:3]
+	py_a_co = mesh.vertices[py_a].co
+	py_b_co = mesh.vertices[py_b].co
+	py_c_co = mesh.vertices[py_c].co
+	a = iq_a; b = iq_b; c = iq_c
+	if cmpco(py_a_co, iq_a_co): a = iq_a
+	if cmpco(py_a_co, iq_b_co): a = iq_b
+	if cmpco(py_a_co, iq_c_co): a = iq_c
+	if cmpco(py_b_co, iq_a_co): b = iq_a
+	if cmpco(py_b_co, iq_b_co): b = iq_b
+	if cmpco(py_b_co, iq_c_co): b = iq_c
+	if cmpco(py_c_co, iq_a_co): c = iq_a
+	if cmpco(py_c_co, iq_b_co): c = iq_b
+	if cmpco(py_c_co, iq_c_co): c = iq_c
+	if a != iq_a or b != iq_b or c != iq_c:
+		print("\tflipped face winding", n)
+	return a,b,c
+
+def make_mesh_data(iqmodel, name, meshes, amtobj, dir):
+	print("importing mesh", name, "with", len(meshes), "parts")
+
+	# Flip winding and UV coords.
+
+	for iqmesh in meshes:
+		iqmesh.faces = [(c,b,a) for (a,b,c) in iqmesh.faces]
+		iqmesh.texcoords = [(u,1-v) for (u,v) in iqmesh.texcoords]
+
+	# Make blender vertices and faces for unique position/normal combinations.
+
+	py_to_iq = {}
+	py_count = 0
+	py_index = {}
+	py_coords = []
+	py_faces = []
+
+	for iqmesh in meshes:
+		for iqface in iqmesh.faces:
+			f = []
+			for iqvert in iqface:
+				pos = iqmesh.positions[iqvert]
+				nor = iqmesh.normals[iqvert]
+				blend = iqmesh.blends[iqvert] if len(iqmesh.blends) else 0
+				v = (pos, nor, blend)
+				if not v in py_index:
+					py_to_iq[py_count] = (iqmesh, iqvert)
+					py_index[v] = py_count
+					py_count = py_count + 1
+					py_coords.append(pos)
+				f.append(py_index[v])
+			py_faces.append(f)
+
+	print("\tcollected %d vertices and %d faces" % (len(py_coords), len(py_faces)))
+
+	mesh = bpy.data.meshes.new(name)
+	obj = bpy.data.objects.new(name, mesh)
+	bpy.context.scene.objects.link(obj)
+	bpy.context.scene.objects.active = obj
+
+	mesh.from_pydata(py_coords, [], py_faces)
+
+	for face in mesh.faces:
+		face.use_smooth = True
+
+	# Set up UV and Color layers
+
+	if len(meshes[0].texcoords):
+		uvlayer = mesh.uv_textures.new("UVMap")
+		n = 0
+		for iqmesh in meshes:
+			material, image = make_material(iqmesh.material, dir)
+			if material.name not in mesh.materials:
+				mesh.materials.append(material)
+			mi = mesh.materials.find(material.name)
+			for a,b,c in iqmesh.faces:
+				a,b,c = reorder(mesh, n, iqmesh, a,b,c)
+				data = uvlayer.data[n]
+				data.uv1 = iqmesh.texcoords[a]
+				data.uv2 = iqmesh.texcoords[b]
+				data.uv3 = iqmesh.texcoords[c]
+				data.image = image
+				mesh.faces[n].material_index = mi
+				n = n + 1
+
+	if len(meshes[0].colors):
+		clayer = mesh.vertex_colors.new()
+		n = 0
+		for iqmesh in meshes:
+			for a,b,c in iqmesh.faces:
+				a,b,c = reorder(mesh, n, iqmesh, a,b,c)
+				data = clayer.data[n]
+				data.color1 = iqmesh.colors[a][0:3]
+				data.color2 = iqmesh.colors[b][0:3]
+				data.color3 = iqmesh.colors[c][0:3]
+				n = n + 1
+
+	# Vertex groups for skinning
+
+	if len(meshes[0].blends) and amtobj:
+		for iqbone in iqmodel.bones:
+			obj.vertex_groups.new(iqbone.name)
+
+		for vgroup in obj.vertex_groups:
+			for v in mesh.vertices:
+				iqmesh, iqvert = py_to_iq[v.index]
+				blend = iqmesh.blends[iqvert]
+				for k in range(0, len(blend), 2):
+					bi = blend[k]
+					bw = blend[k+1]
+					if bi == vgroup.index:
+						vgroup.add([v.index], bw, 'ADD')
+
+		mod = obj.modifiers.new("Skin", 'ARMATURE')
+		mod.object = amtobj
+		mod.use_bone_envelopes = False
+		mod.use_vertex_groups = True
+
+	mesh.update()
+
+	return obj
+
+def make_mesh(iqmodel, meshes, amtobj, dir):
 	print("importing mesh %s with %d vertices and %d faces" %
 		(iqmesh.name, len(iqmesh.positions), len(iqmesh.faces)))
 
@@ -641,14 +774,12 @@ def make_model(iqmodel, bone_axis, dir, use_nla_tracks = False):
 	group = bpy.data.groups.new(iqmodel.name)
 
 	amtobj = make_armature(iqmodel, bone_axis)
-	if not amtobj and len(iqmodel.meshes) > 1:
-		amtobj = bpy.data.objects.new(iqmodel.name, None)
-		bpy.context.scene.objects.link(amtobj)
 	if amtobj:
 		group.objects.link(amtobj)
 
-	for iqmesh in iqmodel.meshes:
-		meshobj = make_mesh(iqmodel, iqmesh, amtobj, dir)
+	meshes = gather_meshes(iqmodel)
+	for name in meshes:
+		meshobj = make_mesh_data(iqmodel, name, meshes[name], amtobj, dir)
 		if amtobj:
 			meshobj.parent = amtobj
 		group.objects.link(meshobj)
@@ -717,13 +848,6 @@ def batch(input):
 	batch_zap()
 	output = os.path.splitext(input)[0] + ".blend"
 	import_iqm(input)
-	print("Saving", output)
-	bpy.ops.wm.save_mainfile(filepath=output, check_existing=False)
-
-def batch_many(input, output):
-	batch_zap()
-	for f in input:
-		import_iqm(f)
 	print("Saving", output)
 	bpy.ops.wm.save_mainfile(filepath=output, check_existing=False)
 
