@@ -70,20 +70,13 @@ void export_scene(FILE *out, const struct aiScene *scene, const struct aiNode *n
 	if (!strstr(node->mName.data, "$ColladaAutoName$"))
 		nodename = (char*)node->mName.data;
 
+	fprintf(out, "\n");
+	fprintf(out, "g %s\n", nodename);
+
 	for (i = 0; i < node->mNumMeshes; i++) {
 		const struct aiMesh *mesh = scene->mMeshes[node->mMeshes[i]];
 		const struct aiMaterial *material = scene->mMaterials[mesh->mMaterialIndex];
 		struct aiString str;
-
-		fprintf(out, "\n");
-		if (node->mNumMeshes > 99)
-			fprintf(out, "g %s,%03d\n", nodename, i);
-		else if (node->mNumMeshes > 9)
-			fprintf(out, "g %s,%02d\n", nodename, i);
-		else if (node->mNumMeshes > 1)
-			fprintf(out, "g %s,%d\n", nodename, i);
-		else
-			fprintf(out, "g %s\n", nodename);
 
 		aiGetMaterialString(material, AI_MATKEY_NAME, &str);
 		fprintf(out, "usemtl %s\n", str.data);

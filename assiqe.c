@@ -1,9 +1,9 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
-#include <assert.h>
 #include <ctype.h>
 #include <math.h>
+#include <assert.h>
 
 #include <assimp/cimport.h>
 #include <assimp/scene.h>
@@ -798,7 +798,6 @@ void bake_scene_skin(const struct aiScene *scene)
 void export_node(FILE *out, const struct aiScene *scene, const struct aiNode *node,
 	struct aiMatrix4x4 mat, char *nodename)
 {
-	char meshname[200];
 	struct aiMatrix3x3 mat3;
 	int i, a, k, t;
 
@@ -822,16 +821,11 @@ void export_node(FILE *out, const struct aiScene *scene, const struct aiNode *no
 			continue;
 		}
 
-		if (node->mNumMeshes > 99) sprintf(meshname, "%s,%03d", nodename, i);
-		else if (node->mNumMeshes > 9) sprintf(meshname, "%s,%02d", nodename, i);
-		else if (node->mNumMeshes > 1) sprintf(meshname, "%s,%d", nodename, i);
-		else sprintf(meshname, "%s", nodename);
-
-		fprintf(stderr, "exporting mesh %s: %d vertices, %d faces\n",
-				meshname, mesh->mNumVertices, mesh->mNumFaces);
+		fprintf(stderr, "exporting mesh %s[%d]: %d vertices, %d faces\n",
+				nodename, i, mesh->mNumVertices, mesh->mNumFaces);
 
 		fprintf(out, "\n");
-		fprintf(out, "mesh %s\n", meshname);
+		fprintf(out, "mesh %s\n", nodename);
 		fprintf(out, "material %s\n", find_material(material));
 
 		struct vb *vb = (struct vb*) malloc(mesh->mNumVertices * sizeof(*vb));
@@ -1038,12 +1032,9 @@ int main(int argc, char **argv)
 		export_node(file, scene, scene->mRootNode, identity, "SCENE");
 	}
 
-	// we always want to export the static initial pose as an animation
 	if (dobone) {
 		if (doanim) {
 			export_animations(file, scene);
-		} else {
-			export_static_animation(file, scene);
 		}
 	}
 
