@@ -485,7 +485,6 @@ images = {}
 def make_material(iqmaterial, dir):
 	matname = "+".join(iqmaterial)
 	texname = iqmaterial[-1]
-	if not "." in texname: texname += ".png"
 
 	# reuse materials if possible
 	if matname in bpy.data.materials:
@@ -499,13 +498,16 @@ def make_material(iqmaterial, dir):
 
 	if not texname in images:
 		print("load image", texname)
-		images[texname] = load_image(texname, dir, place_holder=True, recursive=True)
+		images[texname] = load_image(texname + ".png", dir, place_holder=True, recursive=True)
 		images[texname].use_premultiply = True
 	image = images[texname]
 
-	tex = bpy.data.textures.new(matname, type = 'IMAGE')
-	tex.image = image
-	tex.use_alpha = True
+	if texname in bpy.data.textures:
+		tex = bpy.data.textures[texname]
+	else:
+		tex = bpy.data.textures.new(texname, type = 'IMAGE')
+		tex.image = image
+		tex.use_alpha = True
 
 	mat = bpy.data.materials.new(matname)
 	mat.diffuse_intensity = 1
