@@ -40,7 +40,7 @@ class Mesh:
 				blend = self.blends[i]
 				print >>file, "vb", " ".join(["%.9g" % x for x in blend])
 		for face in self.faces:
-			print "fm %d %d %d" % (face[0], face[1], face[2])
+			print >>file, "fm %d %d %d" % (face[0], face[1], face[2])
 
 class Animation:
 	def __init__(self, name):
@@ -87,7 +87,10 @@ def load_model(file):
 	pose = model.bindpose
 	anim = None
 	for line in file.xreadlines():
-		line = shlex.split(line, "#")
+		if '"' in line or '#' in line:
+			line = shlex.split(line, "#")
+		else:
+			line = line.split()
 		if len(line) == 0:
 			pass
 		elif line[0] == "joint":
@@ -138,14 +141,15 @@ def basename(str):
 def make_material(mat):
 	list = []
 	if 'twosided' in mat: list += ['twosided']
-	if 'alphatest' in mat: list += ['alphatest']
-	if 'alphagloss' in mat: list += ['alphagloss']
+	#if 'alphatest' in mat: list += ['alphatest']
+	#if 'alphagloss' in mat: list += ['alphagloss']
 	if 'unlit' in mat: list += ['unlit']
 	if 'clipu' in mat: list += ['clipu=%g' % mat['clipu']]
 	if 'clipv' in mat: list += ['clipv=%g' % mat['clipv']]
 	if 'clipw' in mat: list += ['clipw=%g' % mat['clipw']]
 	if 'cliph' in mat: list += ['cliph=%g' % mat['cliph']]
 	if 'diffuse.file' in mat: list += [mat['diffuse.file']]
+	elif 'specular.file' in mat: list += [mat['specular.file']]
 	else: list += ["unknown"]
 	return list
 
@@ -333,6 +337,23 @@ def copy_bind_pose(target, source):
 		if i in remap:
 			k = remap[i]
 			target.bindpose[i] = source.bindpose[k]
+
+# Split meshes into separate models (all meshes with same name in one model)
+
+def split_and_save_meshes(model):
+	mesh_list = {}
+	for m in model.meshes:
+		if not m.name in mesh_list:
+			mesh_list[m.name] = []
+		mesh_list[m.name] += [ m ]
+	for name in mesh_list:
+		part = Model()
+		part.name = name
+		part.bones = model.bones
+		part.bindpose = model.bindpose
+		part.meshes = mesh_list[name]
+		print "saving mesh:", name
+		part.save(open(name + ".iqe", "w"))
 
 # Kill selected channels in an animation
 
