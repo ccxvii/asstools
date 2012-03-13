@@ -533,7 +533,6 @@ int animfps = 30, animlen = 0;
 float animtick = 0;
 int playing = 1;
 
-int offscreen = 0;
 int showhelp = 0;
 int doplane = 0;
 int doalpha = 0;
@@ -830,10 +829,6 @@ void display(void)
 	glLoadIdentity();
 	glOrtho(0, screenw, screenh, 0, -1, 1);
 
-	// don't render UI and don't swap buffers if drawing to offscreen buffer
-	if (offscreen)
-		return;
-
 	glMatrixMode(GL_MODELVIEW);
 	glLoadIdentity();
 
@@ -875,58 +870,9 @@ void display(void)
 	if (i) fprintf(stderr, "opengl error: %d\n", i);
 }
 
-// render to offscreen framebuffer object
-void renderppm(int w, int h, FILE *output)
-{
-	unsigned int fbo;
-	unsigned int colorbuffer, depthbuffer;
-
-	glGenFramebuffers(1, &fbo);
-	glBindFramebuffer(GL_FRAMEBUFFER, fbo);
-
-	glGenRenderbuffers(1, &colorbuffer);
-	glBindRenderbuffer(GL_RENDERBUFFER, colorbuffer);
-	glRenderbufferStorage(GL_RENDERBUFFER, GL_RGB8, w, h);
-
-	glGenRenderbuffers(1, &depthbuffer);
-	glBindRenderbuffer(GL_RENDERBUFFER, depthbuffer);
-	glRenderbufferStorage(GL_RENDERBUFFER, GL_DEPTH_COMPONENT24, w, h);
-
-	glFramebufferRenderbuffer(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, GL_RENDERBUFFER, colorbuffer);
-	glFramebufferRenderbuffer(GL_FRAMEBUFFER, GL_DEPTH_ATTACHMENT, GL_RENDERBUFFER, depthbuffer);
-
-	int status = glCheckFramebufferStatus(GL_FRAMEBUFFER);
-	if (status != GL_FRAMEBUFFER_COMPLETE) {
-		fprintf(stderr, "damn! no fbo.\n");
-		exit(1);
-	}
-
-	offscreen = 1;
-	reshape(w, h);
-	display();
-
-	unsigned char *data = malloc(w * h * 3);
-	glReadPixels(0, 0, w, h, GL_RGB, GL_UNSIGNED_BYTE, data);
-
-	fprintf(output, "P6\n");
-	fprintf(output, "%d %d\n", w, h);
-	fprintf(output, "255\n");
-
-	int y = 0;
-	for (y = 0; y < h; y++)
-		fwrite(data + (h-y-1) * 3 * w, 3, w, output);
-
-	glBindFramebuffer(GL_FRAMEBUFFER, 0);
-
-	glDeleteFramebuffers(1, &fbo);
-	glDeleteRenderbuffers(1, &colorbuffer);
-	glDeleteRenderbuffers(1, &depthbuffer);
-}
-
 void usage(void)
 {
 	fprintf(stderr, "usage: assview [-geometry WxH] [options] asset.dae\n");
-	fprintf(stderr, "\t-o\twrite PPM on stdout and quit\n");
 	fprintf(stderr, "\t-i\tdimetric (2:1) camera\n");
 	fprintf(stderr, "\t-I\ttrue isometric camera\n");
 	fprintf(stderr, "\t-a\talpha transparency mode; use more times for higher quality.\n");
@@ -954,9 +900,8 @@ int main(int argc, char **argv)
 	glutInit(&argc, argv);
 	glutInitDisplayMode(GLUT_RGB | GLUT_DOUBLE | GLUT_DEPTH | GLUT_MULTISAMPLE);
 
-	while ((c = getopt(argc, argv, "oiIgtawblc:r:p:z:f:")) != -1) {
+	while ((c = getopt(argc, argv, "iIgtawblc:r:p:z:f:")) != -1) {
 		switch (c) {
-		case 'o': offscreen = 1; playing = 0; break;
 		case 'i': doperspective = 0; camera.yaw = 45; camera.pitch = -DIMETRIC; break;
 		case 'I': doperspective = 0; camera.yaw = 45; camera.pitch = -ISOMETRIC; break;
 		case 'g': doplane = 1; break;
@@ -1022,11 +967,6 @@ int main(int argc, char **argv)
 	glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
 	glColorMaterial(GL_FRONT_AND_BACK, GL_AMBIENT_AND_DIFFUSE);
 	glClearColor(clearcolor[0], clearcolor[1], clearcolor[2], clearcolor[3]);
-
-	if (offscreen) {
-		renderppm(screenw, screenh, stdout);
-		return 0;
-	}
 
 	glutReshapeFunc(reshape);
 	glutDisplayFunc(display);
