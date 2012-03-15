@@ -141,8 +141,9 @@ def basename(str):
 def make_material(mat):
 	list = []
 	if 'twosided' in mat: list += ['twosided']
-	#if 'alphatest' in mat: list += ['alphatest']
-	#if 'alphagloss' in mat: list += ['alphagloss']
+	if 'alphatest' in mat: list += ['alphatest']
+	if 'alphablend' in mat: list += ['alphablend']
+	if 'alphagloss' in mat: list += ['alphagloss']
 	if 'unlit' in mat: list += ['unlit']
 	if 'clipu' in mat: list += ['clipu=%g' % mat['clipu']]
 	if 'clipv' in mat: list += ['clipv=%g' % mat['clipv']]
@@ -175,7 +176,7 @@ def load_material(file):
 			if key == 'twoSided' and val == 'true': mat['twosided'] = True
 			if key == 'bTwoSided' and val == 'true': mat['twosided'] = True
 			if key == 'bAlphaTest' and val == 'true': mat['alphatest'] = True
-			if key == 'bAlphaBlend' and val == 'true': mat['alphatest'] = True
+			if key == 'bAlphaBlend' and val == 'true': mat['alphablend'] = True
 			if key == 'iShaderType' and val == '5': mat['alphagloss'] = True
 			if key == 'bUnlighted' and val == 'true': mat['unlit'] = True
 			if key == 'bitmap1FileName' and val: mat[tex+".file1"] = basename(val)
@@ -191,7 +192,7 @@ def load_material(file):
 			if key == 'bitmap.clipv' and float(val) != 0: mat['clipv'] = float(val)
 			if key == 'bitmap.clipw' and float(val) != 1: mat['clipw'] = float(val)
 			if key == 'bitmap.cliph' and float(val) != 1: mat['cliph'] = float(val)
-	print >>sys.stderr, lib
+	#print >>sys.stderr, lib
 	return lib
 
 def annotate_model(model, annots):
