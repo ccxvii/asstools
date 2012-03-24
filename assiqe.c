@@ -24,6 +24,7 @@ int doflip = 1; // export flipped (quake-style clockwise winding) triangles
 
 int doaxis = 0; // flip bone axis from X to Y to match blender
 int dounscale = 0; // remove scaling from bind pose
+int dohips = 0; // reparent thighs to pelvis (see zo_hom_marche)
 
 char *only_one_node = NULL;
 int list_all_nodes = 0;
@@ -557,11 +558,45 @@ void export_pq(FILE *out, int i)
 	}
 }
 
+int saved_parents[1000];
+
+int fix_hips(int verbose)
+{
+	int i, p, pelvis = -1, fixed = 0;
+
+	for (i = 0; i < numbones; i++) {
+		if (!strcmp(bonelist[i].clean_name, "bip01_pelvis"))
+			pelvis = i;
+		saved_parents[i] = bonelist[i].parent;
+
+		p = bonelist[i].parent;
+		if (!strcmp(bonelist[i].clean_name, "bip01_l_thigh") || !strcmp(bonelist[i].clean_name, "bip01_r_thigh")) {
+			if (p >= 0 && strcmp(bonelist[p].clean_name, "bip01_pelvis")) {
+				if (verbose)
+					fprintf(stderr, "fixing %s (connected to %s)\n", bonelist[i].clean_name, bonelist[p].clean_name);
+				fixed = 1;
+				bonelist[i].parent = pelvis;
+			}
+		}
+	}
+
+	return fixed;
+}
+
+void unfix_hips(void)
+{
+	int i;
+	for (i = 0; i < numbones; i++)
+		bonelist[i].parent = saved_parents[i];
+}
+
 void fix_pose(void)
 {
 	int i;
 
 	calc_abs_pose();
+
+	fix_hips(0);
 
 	for (i = 0; i < numbones; i++) {
 		if (bonelist[i].isbone) {
@@ -606,13 +641,15 @@ void fix_pose(void)
 			aiDecomposeMatrix(&bonelist[i].pose, &bonelist[i].scale, &bonelist[i].rotate, &bonelist[i].translate);
 		}
 	}
+
+	unfix_hips();
 }
 
 void export_pose(FILE *out)
 {
 	int i;
 
-	if (doaxis || dounscale)
+	if (doaxis || dounscale || dohips)
 		fix_pose();
 
 	for (i = 0; i < numbones; i++)
@@ -626,6 +663,15 @@ void export_bone_list(FILE *out)
 	int i, n;
 
 	for (n = i = 0; i < numbones; i++) if (bonelist[i].isbone) n++;
+
+	if (dounscale) fprintf(stderr, "removing scaling factors from bind pose\n");
+	if (doaxis) fprintf(stderr, "flipping bone axis from x to y\n");
+
+	if (dohips) {
+		fprintf(stderr, "patching skeleton hierarchy\n");
+		dohips = fix_hips(1);
+	}
+
 	fprintf(stderr, "exporting skeleton: %d bones\n", n);
 
 	fprintf(out, "\n");
@@ -640,8 +686,8 @@ void export_bone_list(FILE *out)
 		}
 	}
 
-	if (dounscale) fprintf(stderr, "removing scaling factors from bind pose\n");
-	if (doaxis) fprintf(stderr, "flipping bone axis from x to y\n");
+	if (dohips)
+		unfix_hips();
 
 	fprintf(out, "\n");
 	if (dounscale) dounscale = -1;
@@ -947,6 +993,7 @@ void usage()
 	fprintf(stderr, "usage: assiqe [options] [-o out.iqe] input.dae [tags ...]\n");
 	fprintf(stderr, "\t-AA -- export all bones (including unused ones)\n");
 	fprintf(stderr, "\t-A -- export all child bones\n");
+	fprintf(stderr, "\t-H -- fix hierarchy (thighs <- pelvis)\n");
 	fprintf(stderr, "\t-N -- print a list of meshes in scene then quit\n");
 	fprintf(stderr, "\t-n mesh -- export only the named mesh\n");
 	fprintf(stderr, "\t-a -- only export animations\n");
@@ -973,9 +1020,10 @@ int main(int argc, char **argv)
 	int onlyanim = 0;
 	int onlymesh = 0;
 
-	while ((c = getopt(argc, argv, "ANabflmn:o:rvxs")) != -1) {
+	while ((c = getopt(argc, argv, "AHNabflmn:o:rvxs")) != -1) {
 		switch (c) {
 		case 'A': save_all_bones++; break;
+		case 'H': dohips = 1; break;
 		case 'N': list_all_nodes = 1; break;
 		case 'a': onlyanim = 1; break;
 		case 'm': onlymesh = 1; break;
@@ -1023,7 +1071,7 @@ int main(int argc, char **argv)
 	fprintf(stderr, "loading %s\n", input);
 	scene = aiImportFile(input, flags);
 	if (!scene) {
-		fprintf(stderr, "cannot import '%s'\n", input);
+		fprintf(stderr, "cannot import '%s': %s\n", input, aiGetErrorString());
 		exit(1);
 	}
 
