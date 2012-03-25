@@ -42,6 +42,9 @@ int list_all_nodes = 0;
 
 #define LOWP(x) (roundf(x*32768)/32768)
 
+int fix_hips(int verbose);
+void unfix_hips(void);
+
 static struct aiMatrix4x4 yup_to_zup = {
 	1, 0, 0, 0,
 	0, 0, -1, 0,
@@ -156,6 +159,9 @@ char basename[1024];
 
 int numtags = 0;
 char **taglist = NULL;
+
+int numuntags = 0;
+char *untaglist[100];
 
 #define MAXBLEND 12
 #define MIN(a,b) ((a)<(b)?(a):(b))
@@ -378,16 +384,29 @@ void mark_tags(void)
 {
 	int i, k;
 	for (k = 0; k < numtags; k++) {
-		fprintf(stderr, "marking tag %s\n", taglist[k]);
 		for (i = 0; i < numbones; i++) {
 			if (!strcmp(taglist[k], bonelist[i].clean_name)) {
+				fprintf(stderr, "marking tag %s\n", taglist[k]);
 				bonelist[i].reason = "tagged";
 				bonelist[i].isbone = 1;
 				break;
 			}
 		}
-		if (i == numbones)
-			fprintf(stderr, "\tno match found for tag!\n");
+	}
+}
+
+void unmark_tags(void)
+{
+	int i, k;
+	for (k = 0; k < numuntags; k++) {
+		for (i = 0; i < numbones; i++) {
+			if (!strcmp(untaglist[k], bonelist[i].clean_name)) {
+				fprintf(stderr, "unmarking tag %s\n", untaglist[k]);
+				bonelist[i].reason = "untagged";
+				bonelist[i].isbone = 0;
+				break;
+			}
+		}
 	}
 }
 
@@ -457,8 +476,11 @@ int build_bone_list(const struct aiScene *scene)
 
 	build_bone_list_from_nodes(scene->mRootNode, -1, "SCENE");
 
+	if (dohips) fix_hips(0);
+
 	// we always need the bind pose
-	mark_skinned_bones(scene);
+	if (domesh || dorigid)
+		mark_skinned_bones(scene);
 
 	if (doanim || save_all_bones)
 		mark_animated_bones(scene);
@@ -467,6 +489,7 @@ int build_bone_list(const struct aiScene *scene)
 		mark_rigid_bones(scene);
 
 	mark_tags(); // mark special bones named on command line as "tags" to attach stuff
+	unmark_tags(); // remove named bones from list
 
 	// select all parents of selected bones
 	for (i = 0; i < numbones; i++) {
@@ -504,13 +527,15 @@ int build_bone_list(const struct aiScene *scene)
 	if (verbose)
 		for (i = 0; i < numbones; i++)
 			if (bonelist[i].isbone)
-				fprintf(stderr, "selecting %s bone %s\n", bonelist[i].reason, bonelist[i].name);
+				fprintf(stderr, "selecting %s bone %s\n", bonelist[i].reason, bonelist[i].clean_name);
 
 	// assign IQE numbers to bones
 	number = 0;
 	for (i = 0; i < numbones; i++)
 		if (bonelist[i].isbone)
 			bonelist[i].number = number++;
+
+	if (dohips) unfix_hips();
 
 	calc_bind_pose();
 
@@ -560,22 +585,42 @@ void export_pq(FILE *out, int i)
 
 int saved_parents[1000];
 
+struct {
+	char *name; char *parent; int parent_id;
+} hiplist[] = {
+	{ "bip01_l_thigh", "bip01_pelvis", -1 },
+	{ "bip01_r_thigh", "bip01_pelvis", -1 },
+	{ "bip01_l_foot", "bip01_l_calf", -1 },
+	{ "bip01_r_foot", "bip01_r_calf", -1 },
+	{ NULL, NULL, 0 }
+};
+
 int fix_hips(int verbose)
 {
-	int i, p, pelvis = -1, fixed = 0;
+	int i, k, p, fixed = 0;
+
+	for (k = 0; hiplist[k].parent; k++)
+		hiplist[k].parent_id = -1;
 
 	for (i = 0; i < numbones; i++) {
-		if (!strcmp(bonelist[i].clean_name, "bip01_pelvis"))
-			pelvis = i;
 		saved_parents[i] = bonelist[i].parent;
 
+		for (k = 0; hiplist[k].parent; k++)
+			if (!strcmp(bonelist[i].clean_name, hiplist[k].parent))
+				hiplist[k].parent_id = i;
+
 		p = bonelist[i].parent;
-		if (!strcmp(bonelist[i].clean_name, "bip01_l_thigh") || !strcmp(bonelist[i].clean_name, "bip01_r_thigh")) {
-			if (p >= 0 && strcmp(bonelist[p].clean_name, "bip01_pelvis")) {
-				if (verbose)
-					fprintf(stderr, "fixing %s (connected to %s)\n", bonelist[i].clean_name, bonelist[p].clean_name);
-				fixed = 1;
-				bonelist[i].parent = pelvis;
+		for (k = 0; hiplist[k].parent; k++) {
+			if (!strcmp(bonelist[i].clean_name, hiplist[k].name)) {
+				if (p >= 0 && strcmp(bonelist[p].clean_name, hiplist[k].parent)) {
+					if (verbose)
+						fprintf(stderr, "fixing %s -> %s (was connected to %s)\n",
+							bonelist[i].clean_name,
+							bonelist[hiplist[k].parent_id].clean_name,
+							bonelist[p].clean_name);
+					fixed = 1;
+					bonelist[i].parent = hiplist[k].parent_id;
+				}
 			}
 		}
 	}
@@ -1004,6 +1049,7 @@ void usage()
 	fprintf(stderr, "\t-l -- low precision mode (for smaller animation files)\n");
 	fprintf(stderr, "\t-x -- flip bone orientation from x to y\n");
 	fprintf(stderr, "\t-s -- remove scaling from bind pose\n");
+	fprintf(stderr, "\t-u -- unmark bone (force it to be excluded)\n");
 	fprintf(stderr, "\t-o filename -- save output to file\n");
 	exit(1);
 }
@@ -1020,7 +1066,7 @@ int main(int argc, char **argv)
 	int onlyanim = 0;
 	int onlymesh = 0;
 
-	while ((c = getopt(argc, argv, "AHNabflmn:o:rvxs")) != -1) {
+	while ((c = getopt(argc, argv, "AHNabflmn:o:rvxsu:")) != -1) {
 		switch (c) {
 		case 'A': save_all_bones++; break;
 		case 'H': dohips = 1; break;
@@ -1036,6 +1082,7 @@ int main(int argc, char **argv)
 		case 'v': verbose++; break;
 		case 'x': doaxis = 1; break;
 		case 's': dounscale = 1; break;
+		case 'u': untaglist[numuntags++] = optarg++; break;
 		default: usage(); break;
 		}
 	}
@@ -1093,7 +1140,7 @@ int main(int argc, char **argv)
 
 	// Mesh is split with incompatible bind matrices, so pick a new
 	// bind pose and deform the mesh to fit.
-	if (need_to_bake_skin) {
+	if (need_to_bake_skin && !onlyanim) {
 		apply_initial_frame(); // ditch original bind pose
 		bake_scene_skin(scene);
 	}
