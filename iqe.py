@@ -364,12 +364,12 @@ def kill_channels(model, kill_loc, kill_rot, kill_scl):
 			for i in range(len(frame)):
 				name = model.bones[i][0]
 				p = frame[i]
-				a = model.bindpose[i]
+				a = anim.frames[0][i]
 				if kill_loc(name): p = a[0:3] + p[3:7] + p[7:10]
 				if kill_rot(name): p = p[0:3] + a[3:7] + p[7:10]
 				if kill_scl(name): p = p[0:3] + p[3:7] + a[7:10]
 				frame[i] = p
-				if frame == anim.frames[0]: print >>sys.stderr, kill_loc(name), kill_rot(name), kill_scl(name), name
+				#if frame == anim.frames[0]: print >>sys.stderr, kill_loc(name), kill_rot(name), kill_scl(name), name
 
 if __name__ == "__main__":
 	for filename in sys.argv[1:]:
