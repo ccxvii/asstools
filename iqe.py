@@ -233,6 +233,17 @@ def scale_model(model, s):
 	for mesh in model.meshes:
 		mesh.positions = [(x*s,y*s,z*s) for x,y,z in mesh.positions]
 
+# Flip X to Y (for weapon models to realign with blender bones)
+
+def x_to_y(v):
+	x, y, z = v
+	return -y, x, z
+
+def model_x_to_y(model):
+	for mesh in model.meshes:
+		mesh.positions = [x_to_y(v) for v in mesh.positions]
+		mesh.normals = [x_to_y(v) for v in mesh.normals]
+
 # Fix UV coords that have a clip region set. Ugh.
 # We can offset the origin, but then the repeat/wrapping fails.
 # We can offset the origin, and wrap the U/V coords, but then it wraps

@@ -6,7 +6,8 @@ from iqe import *
 def strip_material_name(model):
 	for mesh in model.meshes:
 		m = mesh.material
-		mesh.material = [m[-1]]
+		if 'alphatest' in m: m.remove('alphatest')
+		if 'alphagloss' in m: m.remove('alphagloss')
 
 def rename_meshes(model):
 	for mesh in model.meshes:
@@ -15,14 +16,8 @@ def rename_meshes(model):
 		print >>sys.stderr, name, mesh.material
 		mesh.name = name
 
-def rename_meshes2(model):
-	for mesh in model.meshes:
-		name = mesh.name
-		print >>sys.stderr, name, mesh.material
-		mesh.name = mesh.material[-1]
-
 m = load_model(sys.stdin)
-#strip_material_name(m)
+strip_material_name(m)
 merge_meshes(m)
-rename_meshes2(m)
+rename_meshes(m)
 m.save(sys.stdout)
