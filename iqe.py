@@ -38,6 +38,8 @@ class Mesh:
 				print >>file, "vc %.9g %.9g %.9g %.9g" % xyzw
 			if len(self.blends) == len(self.positions):
 				blend = self.blends[i]
+				if len(blend) > 0:
+					blend = reduce(lambda x,y: x+y, blend) # flatten pairs
 				print >>file, "vb", " ".join(["%.9g" % x for x in blend])
 		for face in self.faces:
 			print >>file, "fm %d %d %d" % (face[0], face[1], face[2])
@@ -54,11 +56,13 @@ class Animation:
 		print >>file, "animation", self.name
 		print >>file, "framerate", self.framerate
 		if self.loop: print >>file, "loop"
+		framenumber = 0
 		for frame in self.frames:
 			print >>file
-			print >>file, "frame"
+			print >>file, "frame", framenumber
 			for pose in frame:
 				print >>file, "pq", " ".join(["%.9g" % x for x in pose])
+			framenumber = framenumber + 1
 
 class Model:
 	def __init__(self):
@@ -80,6 +84,9 @@ class Model:
 			mesh.save(file)
 		for anim in self.anims:
 			anim.save(file)
+
+def blend_pairs(t):
+	return tuple(zip(t[::2], t[1::2]))
 
 def load_model(file):
 	model = Model()
@@ -113,7 +120,7 @@ def load_model(file):
 		elif line[0] == "vc":
 			mesh.colors.append(tuple([float(x) for x in line[1:5]]))
 		elif line[0] == "vb":
-			mesh.blends.append(tuple([float(x) for x in line[1:]]))
+			mesh.blends.append(blend_pairs([float(x) for x in line[1:]]))
 		elif line[0] == "fm":
 			mesh.faces.append(tuple([int(x) for x in line[1:4]]))
 		elif line[0] == "animation":
@@ -141,14 +148,14 @@ def basename(str):
 def make_material(mat):
 	list = []
 	if 'twosided' in mat: list += ['twosided']
-	if 'alphatest' in mat: list += ['alphatest']
+	#if 'alphatest' in mat: list += ['alphatest']
 	if 'alphablend' in mat: list += ['alphablend']
-	if 'alphagloss' in mat: list += ['alphagloss']
+	#if 'alphagloss' in mat: list += ['alphagloss']
 	if 'unlit' in mat: list += ['unlit']
 	if 'clipu' in mat: list += ['clipu=%g' % mat['clipu']]
 	if 'clipv' in mat: list += ['clipv=%g' % mat['clipv']]
-	if 'clipw' in mat: list += ['clipw=%g' % mat['clipw']]
-	if 'cliph' in mat: list += ['cliph=%g' % mat['cliph']]
+	#if 'clipw' in mat: list += ['clipw=%g' % mat['clipw']]
+	#if 'cliph' in mat: list += ['cliph=%g' % mat['cliph']]
 	if 'diffuse.file' in mat: list += [mat['diffuse.file']]
 	elif 'specular.file' in mat: list += [mat['specular.file']]
 	else: list += ["unknown"]
