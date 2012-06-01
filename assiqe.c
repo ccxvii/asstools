@@ -16,6 +16,7 @@ int need_to_bake_skin = 0;
 int save_all_bones = 0;
 int dolowprec = 0;
 
+int dostatic = 0; // export without skeleton
 int dorigid = 0; // export rigid (non-deformed) nodes as bones too
 int domesh = 1; // export mesh
 int doanim = 0; // export animations
@@ -178,7 +179,7 @@ struct material {
 	char *shader;
 };
 
-struct material matlist[1000];
+struct material matlist[10000];
 int nummats = 0;
 
 struct bone {
@@ -204,7 +205,7 @@ struct bone {
 	struct aiVector3D scale;
 };
 
-struct bone bonelist[1000];
+struct bone bonelist[10000];
 int numbones = 0;
 
 int find_bone(char *name)
@@ -1040,6 +1041,7 @@ void usage()
 	fprintf(stderr, "\t-A -- export all child bones\n");
 	fprintf(stderr, "\t-H -- fix hierarchy (thighs <- pelvis)\n");
 	fprintf(stderr, "\t-N -- print a list of meshes in scene then quit\n");
+	fprintf(stderr, "\t-S -- static mesh only (no skeleton)\n");
 	fprintf(stderr, "\t-n mesh -- export only the named mesh\n");
 	fprintf(stderr, "\t-a -- only export animations\n");
 	fprintf(stderr, "\t-m -- only export mesh\n");
@@ -1066,11 +1068,12 @@ int main(int argc, char **argv)
 	int onlyanim = 0;
 	int onlymesh = 0;
 
-	while ((c = getopt(argc, argv, "AHNabflmn:o:rvxsu:")) != -1) {
+	while ((c = getopt(argc, argv, "AHNSabflmn:o:rvxsu:")) != -1) {
 		switch (c) {
 		case 'A': save_all_bones++; break;
 		case 'H': dohips = 1; break;
 		case 'N': list_all_nodes = 1; break;
+		case 'S': dostatic = 1; break;
 		case 'a': onlyanim = 1; break;
 		case 'm': onlymesh = 1; break;
 		case 'n': only_one_node = optarg++; break;
@@ -1126,12 +1129,19 @@ int main(int argc, char **argv)
 	if (onlymesh) { domesh = 1; doanim = 0; }
 	if (onlyanim) { domesh = 0; doanim = 1; }
 
+	if (getenv("DOANIM")) doanim = 1;
+
 	// Convert to Z-UP coordinate system
 	aiMultiplyMatrix4(&scene->mRootNode->mTransformation, &yup_to_zup);
 
 	// Build a list of bones and compute the bind pose matrices.
 	if (build_bone_list(scene) > 0)
 		dobone = 1;
+
+	if (dostatic) {
+		dobone = 0;
+		need_to_bake_skin = 0;
+	}
 
 	if (list_all_nodes) {
 		export_mesh_list(scene);
