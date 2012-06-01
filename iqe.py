@@ -47,7 +47,7 @@ class Mesh:
 class Animation:
 	def __init__(self, name):
 		self.name = name
-		self.framerate = 30
+		self.framerate = 30.0
 		self.loop = False
 		self.frames = []
 
@@ -127,7 +127,7 @@ def load_model(file):
 			anim = Animation(line[1])
 			model.anims.append(anim)
 		elif line[0] == "framerate":
-			anim.framerate = int(line[1])
+			anim.framerate = float(line[1])
 		elif line[0] == "loop":
 			anim.loop = True
 		elif line[0] == "frame":
@@ -145,7 +145,7 @@ def basename(str):
 	str = str.lower().replace(' ', '_')
 	return str
 
-def make_material(mat):
+def make_material(mat, texture):
 	list = []
 	if 'twosided' in mat: list += ['twosided']
 	#if 'alphatest' in mat: list += ['alphatest']
@@ -156,9 +156,10 @@ def make_material(mat):
 	if 'clipv' in mat: list += ['clipv=%g' % mat['clipv']]
 	#if 'clipw' in mat: list += ['clipw=%g' % mat['clipw']]
 	#if 'cliph' in mat: list += ['cliph=%g' % mat['cliph']]
-	if 'diffuse.file' in mat: list += [mat['diffuse.file']]
-	elif 'specular.file' in mat: list += [mat['specular.file']]
-	else: list += ["unknown"]
+	#if 'diffuse.file' in mat: list += [mat['diffuse.file']]
+	#elif 'specular.file' in mat: list += [mat['specular.file']]
+	#else: list += [texture]
+	list += [texture]
 	return list
 
 def load_material(file):
@@ -205,8 +206,13 @@ def load_material(file):
 def annotate_model(model, annots):
 	for mesh in model.meshes:
 		name = mesh.material[0]
+		texture = mesh.material[-1]
 		if name in annots:
-			mesh.material = make_material(annots[name])
+			mesh.material = make_material(annots[name], texture)
+		else:
+			name = name.replace("_1", "")
+			if name in annots:
+				mesh.material = make_material(annots[name], texture)
 
 # Create backfacing copies of twosided meshes.
 
@@ -239,6 +245,12 @@ def backface_model(model):
 def scale_model(model, s):
 	for mesh in model.meshes:
 		mesh.positions = [(x*s,y*s,z*s) for x,y,z in mesh.positions]
+
+# Translate model coords
+
+def translate_model(model, tx, ty, tz):
+	for mesh in model.meshes:
+		mesh.positions = [(tx+x,ty+y,tz+z) for x,y,z in mesh.positions]
 
 # Flip X to Y (for weapon models to realign with blender bones)
 
@@ -356,6 +368,33 @@ def copy_bind_pose(target, source):
 		if i in remap:
 			k = remap[i]
 			target.bindpose[i] = source.bindpose[k]
+
+# Discard bones not in list of bones to keep.
+
+def select_bones(model, keeplist):
+	new_bones = []
+	new_names = []
+	new_parents = []
+	new_bindpose = []
+	N = 0
+	for name, parent in model.bones:
+		# drop dups as well
+		if name in keeplist and not name in new_names:
+			new_parent = -1
+			if parent > 0:
+				parent_name = model.bones[parent][0]
+				if parent_name in new_names:
+					new_parent = new_names.index(parent_name)
+			new_names += [name]
+			new_parents += [new_parent]
+			new_bones += [(name, new_parent)]
+			new_bindpose += [model.bindpose[N]]
+		N = N + 1
+	# TODO: remap vertices and animations...
+	model.meshes = []
+	model.anims = []
+	model.bones = new_bones
+	model.bindpose = new_bindpose
 
 # Split meshes into separate models (all meshes with same name in one model)
 
