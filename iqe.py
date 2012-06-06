@@ -7,7 +7,7 @@
 #	no custom vertex array types
 #	no comment sections
 
-import sys, shlex, fnmatch
+import sys, shlex, fnmatch, os.path
 
 class Mesh:
 	def __init__(self, name):
@@ -135,6 +135,35 @@ def load_model(file):
 			anim.frames.append(pose)
 	return model
 
+def save_as_obj(model, filename):
+	mtlname = os.path.splitext(filename)[0] + ".mtl"
+	mfile = open(mtlname, "w")
+	print >>mfile, "# Wavefront Object Material"
+
+	file = open(filename, "w")
+	print >>file, "# Wavefront Object Model"
+	print >>file, "mtllib", mtlname
+
+	curmesh = None
+	ofs = 1
+	for mesh in model.meshes:
+		if curmesh != mesh.name:
+			print >>file, "g", mesh.name
+		curmesh = mesh.name
+		print >>mfile, "newmtl", "+".join(mesh.material)
+		print >>mfile, "map_Kd", mesh.material[-1] + ".png"
+		print >>file, "usemtl", "+".join(mesh.material)
+		for i in range(len(mesh.positions)):
+			x,y,z = mesh.positions[i]
+			print >>file, "v %.9g %.9g %.9g" % (x,z,-y)
+			x,y = mesh.texcoords[i]
+			print >>file, "vt %.9g %.9g" % (x,1-y)
+			x,y,z = mesh.normals[i]
+			print >>file, "vn %.9g %.9g %.9g" % (x,z,-y)
+		for face in mesh.faces:
+			a,b,c = face[0]+ofs, face[1]+ofs, face[2]+ofs
+			print >>file, "f %d/%d/%d %d/%d/%d %d/%d/%d" % (a,a,a, c,c,c, b,b,b)
+		ofs += len(mesh.positions)
 
 # Annotate materials with flags from data in .material files.
 
