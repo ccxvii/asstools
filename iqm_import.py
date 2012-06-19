@@ -498,7 +498,7 @@ def make_material(iqmaterial, dir):
 
 	if not texname in images:
 		print("load image", texname)
-		images[texname] = load_image(texname + ".png", dir, place_holder=True, recursive=True)
+		images[texname] = load_image("textures/" + texname + ".png", dir, place_holder=True, recursive=True)
 		images[texname].use_premultiply = True
 	image = images[texname]
 
@@ -596,7 +596,7 @@ def make_mesh_data(iqmodel, name, meshes, amtobj, dir):
 			f = []
 			for iqvert in iqface:
 				pos = iqmesh.positions[iqvert]
-				nor = iqmesh.normals[iqvert]
+				nor = iqmesh.normals[iqvert] if len(iqmesh.normals) else 0
 				blend = iqmesh.blends[iqvert] if len(iqmesh.blends) else 0
 				v = (pos, nor, blend)
 				if not v in py_index:
@@ -853,7 +853,17 @@ def batch(input):
 	print("Saving", output)
 	bpy.ops.wm.save_mainfile(filepath=output, check_existing=False)
 
+def batch_many(input_list):
+	batch_zap()
+	output = "output.blend"
+	for input in input_list:
+		import_iqm(input)
+	print("Saving", output)
+	bpy.ops.wm.save_mainfile(filepath=output, check_existing=False)
+
 if __name__ == "__main__":
 	register()
 	if len(sys.argv) > 4 and sys.argv[-2] == '--':
 		batch(sys.argv[-1])
+	elif len(sys.argv) > 4 and sys.argv[4] == '--':
+		batch_many(sys.argv[5:])
