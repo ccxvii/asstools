@@ -930,27 +930,46 @@ merge_bones(struct model *model, char *a_name, char *b_name)
 {
 	mat4 bind_matrix[MAXBONE];
 	mat4 abs_bind_matrix[MAXBONE];
+	mat4 inv_bind_matrix[MAXBONE];
+	mat4 m;
 	struct frame *frame;
 
 	int a = findbone(model, a_name);
 	int b = findbone(model, b_name);
+	int ap = model->parent[a];
 
 	assert(a >= 0 && b >= 0);
-	assert(model->parent[a] == -1);
 	assert(model->parent[b] == a);
 
-	// calc abs matrix for b pose
-	// use abs matrix as pose for b
 	calc_matrix_from_pose(bind_matrix, model->bind_pose, model->bone_count);
 	calc_abs_matrix(abs_bind_matrix, bind_matrix, model->parent, model->bone_count);
-	mat_decompose(abs_bind_matrix[b], &model->bind_pose[b]);
+	calc_inv_matrix(inv_bind_matrix, abs_bind_matrix, model->bone_count);
+
+	// calc b's relative pose relative to a's parent
+	if (model->parent[a] == -1) {
+		mat_copy(m, abs_bind_matrix[b]);
+	} else {
+		mat_mul44(m, inv_bind_matrix[ap], abs_bind_matrix[b]);
+	}
+	mat_decompose(m, &model->bind_pose[b]);
 
 	for (frame = model->frame; frame; frame = frame->next)
 	{
 		calc_matrix_from_pose(bind_matrix, frame->pose, model->bone_count);
 		calc_abs_matrix(abs_bind_matrix, bind_matrix, model->parent, model->bone_count);
-		mat_decompose(abs_bind_matrix[b], &frame->pose[b]);
+		calc_inv_matrix(inv_bind_matrix, abs_bind_matrix, model->bone_count);
+
+		// calc b's relative pose relative to a's parent
+		if (model->parent[a] == -1) {
+			mat_copy(m, abs_bind_matrix[b]);
+		} else {
+			mat_mul44(m, inv_bind_matrix[ap], abs_bind_matrix[b]);
+		}
+		mat_decompose(m, &frame->pose[b]);
 	}
+
+	// set b's parent to a's parent
+	model->parent[b] = ap;
 
 	// delete a
 	delete_bone(model, a_name);
