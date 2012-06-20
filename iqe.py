@@ -278,8 +278,26 @@ def scale_model(model, s):
 # Translate model coords
 
 def translate_model(model, tx, ty, tz):
+	if len(model.bindpose) > 0:
+		pose = list(model.bindpose[0])
+		pose[0] += tx
+		pose[1] += ty
+		pose[2] += tz
+		model.bindpose[0] = tuple(pose)
 	for mesh in model.meshes:
 		mesh.positions = [(tx+x,ty+y,tz+z) for x,y,z in mesh.positions]
+
+def zero_root_translation(model):
+	pose = list(model.bindpose[0])
+	translate_model(model, -pose[0], -pose[1], -pose[2])
+
+def drop_to_ground(model):
+	min_z = 0
+	for mesh in model.meshes:
+		for x, y, z in mesh.positions:
+			if z < min_z:
+				min_z = z
+	translate_model(model, 0, 0, -min_z)
 
 # Flip X to Y (for weapon models to realign with blender bones)
 
@@ -397,6 +415,17 @@ def copy_bind_pose(target, source):
 		if i in remap:
 			k = remap[i]
 			target.bindpose[i] = source.bindpose[k]
+
+def copy_bip01(target, source):
+	source.bindpose = source.anims[0].frames[0]
+	target.meshes = []
+	remap = make_bone_map(target, source)
+	for i in range(len(target.bones)):
+		n = target.bones[i][0]
+		if n == 'bip01' or n == 'bip01_pelvis':
+			if i in remap:
+				k = remap[i]
+				target.bindpose[i] = source.bindpose[k]
 
 # Discard bones not in list of bones to keep.
 
