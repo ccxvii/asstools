@@ -642,7 +642,7 @@ void fix_pose(void)
 
 	calc_abs_pose();
 
-	fix_hips(0);
+	if (dohips) fix_hips(0);
 
 	for (i = 0; i < numbones; i++) {
 		if (bonelist[i].isbone) {
@@ -688,7 +688,7 @@ void fix_pose(void)
 		}
 	}
 
-	unfix_hips();
+	if (dohips) unfix_hips();
 }
 
 void export_pose(FILE *out)
