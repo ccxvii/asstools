@@ -54,7 +54,7 @@ class Animation:
 	def save(self, file):
 		print >>file
 		print >>file, "animation", self.name
-		print >>file, "framerate", self.framerate
+		if self.framerate != 30: print >>file, "framerate %g" % self.framerate
 		if self.loop: print >>file, "loop"
 		framenumber = 0
 		for frame in self.frames:
@@ -436,6 +436,23 @@ def copy_bip01(target, source):
 			if i in remap:
 				k = remap[i]
 				target.bindpose[i] = source.bindpose[k]
+
+def copy_animation(target, source):
+	remap = make_bone_map(target, source)
+	for srcanim in source.anims:
+		dstanim = Animation(srcanim.name)
+		dstanim.framerate = srcanim.framerate
+		dstanim.loop = srcanim.loop
+		for srcframe in srcanim.frames:
+			dstframe = []
+			for i in range(len(target.bones)):
+				if i in remap:
+					k = remap[i]
+					dstframe.append(srcframe[k])
+				else:
+					dstframe.append(target.bindpose[i])
+			dstanim.frames.append(dstframe)
+		target.anims.append(dstanim)
 
 # Discard bones not in list of bones to keep.
 
