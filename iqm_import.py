@@ -144,7 +144,7 @@ def load_iqe(filename):
 			curanim = IQAnimation(line[1])
 			model.anims.append(curanim)
 		elif line[0] == "framerate":
-			curanim.framerate = int(line[1])
+			curanim.framerate = float(line[1])
 		elif line[0] == "loop":
 			curanim.loop = True
 		elif line[0] == "frame":
@@ -444,7 +444,7 @@ def make_pose(iqmodel, frame, amtobj, bone_axis, tick):
 	loc_pose_mat, _ = calc_pose_mats(iqmodel, frame, bone_axis)
 	for n in range(len(iqmodel.bones)):
 		name = iqmodel.bones[n].name
-		pose_bone = amtobj.pose.bones[n]
+		pose_bone = amtobj.pose.bones[name]
 		pose_bone.matrix_basis = iqmodel.inv_loc_bind_mat[n] * loc_pose_mat[n]
 		pose_bone.keyframe_insert(group=name, frame=tick, data_path='location')
 		pose_bone.keyframe_insert(group=name, frame=tick, data_path='rotation_quaternion')
