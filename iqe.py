@@ -292,7 +292,7 @@ def zero_root_translation(model):
 	translate_model(model, -pose[0], -pose[1], -pose[2])
 
 def drop_to_ground(model):
-	min_z = 0
+	min_z = 1000
 	for mesh in model.meshes:
 		for x, y, z in mesh.positions:
 			if z < min_z:
@@ -415,6 +415,16 @@ def copy_bind_pose(target, source):
 		if i in remap:
 			k = remap[i]
 			target.bindpose[i] = source.bindpose[k]
+
+def copy_bone_translation(target, source):
+	remap = make_bone_map(target, source)
+	for i in range(len(target.bones)):
+		if i in remap:
+			k = remap[i]
+			spose = list(source.bindpose[k])
+			tpose = list(target.bindpose[k])
+			pose = spose[:3] + tpose[3:]
+			target.bindpose[i] = tuple(pose)
 
 def copy_bip01(target, source):
 	source.bindpose = source.anims[0].frames[0]

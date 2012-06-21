@@ -805,14 +805,16 @@ void
 apply_pose(mat4 *dst_abs_matrix, struct model *dst, struct model *src)
 {
 	mat4 dst_matrix[MAXBONE];
-	struct pose dst_pose[MAXBONE];
+
+	// recalculate dst_matrix and dst_abs_matrix in new pose
+	// leave dst_inv_matrix alone
+	// destructively update destination bind_pose for saving
 
 	int i, k;
 	for (i = 0; i < dst->bone_count; i++) {
-		dst_pose[i] = dst->bind_pose[i];
 		for (k = 0; k < src->bone_count; k++) {
 			if (!strcmp(dst->bone_name[i], src->bone_name[k])) {
-				dst_pose[i] = src->bind_pose[k];
+				dst->bind_pose[i] = src->bind_pose[k];
 				break;
 			}
 		}
@@ -820,7 +822,7 @@ apply_pose(mat4 *dst_abs_matrix, struct model *dst, struct model *src)
 			fprintf(stderr, "cannot find source pose for bone '%s'\n", dst->bone_name[i]);
 	}
 
-	calc_matrix_from_pose(dst_matrix, dst_pose, dst->bone_count);
+	calc_matrix_from_pose(dst_matrix, dst->bind_pose, dst->bone_count);
 	calc_abs_matrix(dst_abs_matrix, dst_matrix, dst->parent, dst->bone_count);
 }
 
