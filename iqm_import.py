@@ -4,8 +4,8 @@ bl_info = {
 	"name": "Import Inter-Quake Model (.iqm, .iqe)",
 	"description": "Import Inter-Quake and Inter-Quake Export models.",
 	"author": "Tor Andersson",
-	"version": (2012, 3, 11),
-	"blender": (2, 6, 2),
+	"version": (2012, 11, 28),
+	"blender": (2, 6, 4),
 	"location": "File > Import > Inter-Quake Model",
 	"wiki_url": "http://github.com/ccxvii/asstools",
 	"category": "Import-Export",
@@ -14,7 +14,7 @@ bl_info = {
 import bpy, math, shlex, struct, os, sys
 
 from bpy.props import *
-from bpy_extras.io_utils import ImportHelper
+from bpy_extras.io_utils import ImportHelper, unpack_list, unpack_face_list
 from bpy_extras.image_utils import load_image
 from mathutils import Matrix, Quaternion, Vector
 
@@ -397,9 +397,6 @@ def make_armature(iqmodel, bone_axis):
 	bpy.context.scene.objects.link(obj)
 	bpy.context.scene.objects.active = obj
 
-	obj.show_x_ray = True
-	amt.use_deform_envelopes = False
-
 	bpy.ops.object.mode_set(mode='EDIT')
 
 	loc_bind_mat, abs_bind_mat = calc_pose_mats(iqmodel, iqmodel.bindpose, bone_axis)
@@ -483,14 +480,14 @@ def make_actions(iqmodel, amtobj, bone_axis, use_nla_tracks):
 images = {}
 
 def make_material(iqmaterial, dir):
+	print("importing material", iqmaterial)
+
 	matname = "+".join(iqmaterial)
 	texname = iqmaterial[-1]
 
 	# reuse materials if possible
 	if matname in bpy.data.materials:
 		return bpy.data.materials[matname], images[texname]
-
-	print("importing material", matname)
 
 	twosided = 'twosided' in iqmaterial
 	alphatest = 'alphatest' in iqmaterial
@@ -546,36 +543,29 @@ def gather_meshes(iqmodel):
 			meshes[mesh.name] += [ mesh ]
 	return meshes
 
-def cmpco(a,b):
-	if abs(a[0] - b[0]) > 0.00001: return False
-	if abs(a[1] - b[1]) > 0.00001: return False
-	if abs(a[2] - b[2]) > 0.00001: return False
-	return True
-
-def reorder(mesh, n, iqmesh, iq_a, iq_b, iq_c):
-	iq_a_co = iqmesh.positions[iq_a]
-	iq_b_co = iqmesh.positions[iq_b]
-	iq_c_co = iqmesh.positions[iq_c]
-	py_a, py_b, py_c = mesh.faces[n].vertices[0:3]
-	py_a_co = mesh.vertices[py_a].co
-	py_b_co = mesh.vertices[py_b].co
-	py_c_co = mesh.vertices[py_c].co
-	a = iq_a; b = iq_b; c = iq_c
-	if cmpco(py_a_co, iq_a_co): a = iq_a
-	if cmpco(py_a_co, iq_b_co): a = iq_b
-	if cmpco(py_a_co, iq_c_co): a = iq_c
-	if cmpco(py_b_co, iq_a_co): b = iq_a
-	if cmpco(py_b_co, iq_b_co): b = iq_b
-	if cmpco(py_b_co, iq_c_co): b = iq_c
-	if cmpco(py_c_co, iq_a_co): c = iq_a
-	if cmpco(py_c_co, iq_b_co): c = iq_b
-	if cmpco(py_c_co, iq_c_co): c = iq_c
-	if a != iq_a or b != iq_b or c != iq_c:
-		print("\tflipped face winding", n)
-	return a,b,c
+def reorder(f, ft, fc):
+	# funny shit! see bpy_extras.io_utils.unpack_face_list()
+	if f[2] == 0:
+		f = f[1], f[2], f[0]
+		ft = ft[1], ft[2], ft[0]
+		fc = fc[1], fc[2], fc[0]
+	return f, ft, fc
 
 def make_mesh_data(iqmodel, name, meshes, amtobj, dir):
 	print("importing mesh", name, "with", len(meshes), "parts")
+
+	mesh = bpy.data.meshes.new(name)
+	obj = bpy.data.objects.new(name, mesh)
+	bpy.context.scene.objects.link(obj)
+	bpy.context.scene.objects.active = obj
+
+	# Set the mesh to single-sided to spot normal errors
+	mesh.show_double_sided = False
+
+	has_normals = len(iqmodel.meshes[0].normals) > 0
+	has_texcoords = len(iqmodel.meshes[0].texcoords) > 0
+	has_colors = len(iqmodel.meshes[0].colors) > 0
+	has_blends = len(iqmodel.meshes[0].blends) > 0
 
 	# Flip winding and UV coords.
 
@@ -583,99 +573,100 @@ def make_mesh_data(iqmodel, name, meshes, amtobj, dir):
 		iqmesh.faces = [(c,b,a) for (a,b,c) in iqmesh.faces]
 		iqmesh.texcoords = [(u,1-v) for (u,v) in iqmesh.texcoords]
 
-	# Make blender vertices and faces for unique position/normal combinations.
+	# Blender has texcoords and colors on faces rather than vertices.
+	# Create material slots for all materials used.
+	# Create new vertices from unique vp/vn/vb sets (vertex data).
+	# Create new faces which index these new vertices, and has associated face data.
 
-	py_to_iq = {}
-	py_count = 0
-	py_index = {}
-	py_coords = []
-	py_faces = []
+	vertex_map = {}
+	new_f = []
+	new_ft = []
+	new_fc = []
+	new_fm_m = []
+	new_fm_i = []
+	new_vp = []
+	new_vn = []
+	new_vb = []
 
 	for iqmesh in meshes:
+		material, image = make_material(iqmesh.material, dir)
+		if material.name not in mesh.materials:
+			mesh.materials.append(material)
+		material_index = mesh.materials.find(material.name)
+
 		for iqface in iqmesh.faces:
 			f = []
+			ft = []
+			fc = []
 			for iqvert in iqface:
-				pos = iqmesh.positions[iqvert]
-				nor = iqmesh.normals[iqvert] if len(iqmesh.normals) else 0
-				blend = iqmesh.blends[iqvert] if len(iqmesh.blends) else 0
-				v = (pos, nor, blend)
-				if not v in py_index:
-					py_to_iq[py_count] = (iqmesh, iqvert)
-					py_index[v] = py_count
-					py_count = py_count + 1
-					py_coords.append(pos)
-				f.append(py_index[v])
-			py_faces.append(f)
+				vp = iqmesh.positions[iqvert]
+				vn = iqmesh.normals[iqvert] if has_normals else (1,0,0)
+				vb = iqmesh.blends[iqvert] if has_blends else (0,1)
+				vertex = (vp, vn, vb)
+				if not vertex in vertex_map:
+					vertex_map[vertex] = len(new_vp)
+					new_vp.append(vp)
+					new_vn.append(vn)
+					new_vb.append(vb)
+				f.append(vertex_map[vertex])
+				ft.append(iqmesh.texcoords[iqvert] if has_texcoords else None)
+				fc.append(iqmesh.colors[iqvert] if has_colors else None)
+			f, ft, fc = reorder(f, ft, fc)
+			new_f.append(f)
+			new_ft.append(ft)
+			new_fc.append(fc)
+			new_fm_m.append(material_index)
+			new_fm_i.append(image)
 
-	print("\tcollected %d vertices and %d faces" % (len(py_coords), len(py_faces)))
+	print("\tcollected %d vertices and %d faces" % (len(new_vp), len(new_f)))
 
-	mesh = bpy.data.meshes.new(name)
-	obj = bpy.data.objects.new(name, mesh)
-	bpy.context.scene.objects.link(obj)
-	bpy.context.scene.objects.active = obj
+	# Create mesh vertex and face data
 
-	mesh.from_pydata(py_coords, [], py_faces)
+	mesh.vertices.add(len(new_vp))
+	mesh.vertices.foreach_set("co", unpack_list(new_vp))
 
-	for face in mesh.faces:
-		face.use_smooth = True
+	mesh.tessfaces.add(len(new_f))
+	mesh.tessfaces.foreach_set("vertices_raw", unpack_face_list(new_f))
 
 	# Set up UV and Color layers
 
-	if len(meshes[0].texcoords):
-		uvlayer = mesh.uv_textures.new("UVMap")
-		n = 0
-		for iqmesh in meshes:
-			material, image = make_material(iqmesh.material, dir)
-			if material.name not in mesh.materials:
-				mesh.materials.append(material)
-			mi = mesh.materials.find(material.name)
-			for a,b,c in iqmesh.faces:
-				a,b,c = reorder(mesh, n, iqmesh, a,b,c)
-				data = uvlayer.data[n]
-				data.uv1 = iqmesh.texcoords[a]
-				data.uv2 = iqmesh.texcoords[b]
-				data.uv3 = iqmesh.texcoords[c]
-				data.image = image
-				mesh.faces[n].material_index = mi
-				n = n + 1
+	uvlayer = mesh.tessface_uv_textures.new() if has_texcoords else None
+	clayer = mesh.tessface_vertex_colors.new() if has_colors else None
 
-	if len(meshes[0].colors):
-		clayer = mesh.vertex_colors.new()
-		n = 0
-		for iqmesh in meshes:
-			for a,b,c in iqmesh.faces:
-				a,b,c = reorder(mesh, n, iqmesh, a,b,c)
-				data = clayer.data[n]
-				data.color1 = iqmesh.colors[a][0:3]
-				data.color2 = iqmesh.colors[b][0:3]
-				data.color3 = iqmesh.colors[c][0:3]
-				n = n + 1
+	for i, face in enumerate(mesh.tessfaces):
+		face.use_smooth = True
+		face.material_index = new_fm_m[i]
+		if uvlayer:
+			uvlayer.data[i].uv1 = new_ft[i][0]
+			uvlayer.data[i].uv2 = new_ft[i][1]
+			uvlayer.data[i].uv3 = new_ft[i][2]
+			uvlayer.data[i].image = new_fm_i[i]
+		if clayer:
+			clayer.data[i].color1 = new_fc[0]
+			clayer.data[i].color2 = new_fc[1]
+			clayer.data[i].color3 = new_fc[2]
 
-	# Vertex groups for skinning
+	# Vertex groups and armature modifier for skinning
 
-	if len(meshes[0].blends) and amtobj:
+	if has_blends and amtobj:
 		for iqbone in iqmodel.bones:
 			obj.vertex_groups.new(iqbone.name)
 
 		for vgroup in obj.vertex_groups:
-			for v in mesh.vertices:
-				iqmesh, iqvert = py_to_iq[v.index]
-				blend = iqmesh.blends[iqvert]
+			for v, blend in enumerate(new_vb):
 				for k in range(0, len(blend), 2):
 					bi = blend[k]
 					bw = blend[k+1]
 					if bi == vgroup.index:
-						vgroup.add([v.index], bw, 'ADD')
+						vgroup.add([v], bw, 'ADD')
 
-		mod = obj.modifiers.new("Skin", 'ARMATURE')
+		mod = obj.modifiers.new("Armature", 'ARMATURE')
 		mod.object = amtobj
-		mod.use_bone_envelopes = False
 		mod.use_vertex_groups = True
 
-	mesh.update()
+	# Update mesh polygons from tessfaces
 
-	# Set the mesh to single-sided to spot normal errors
-	mesh.show_double_sided = False
+	mesh.update()
 
 	return obj
 
