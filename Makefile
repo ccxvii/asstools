@@ -1,7 +1,7 @@
 OS := $(shell uname)
 OS := $(OS:MINGW%=MINGW)
 
-default: assiqe assobj assview iqeview
+default: assiqe assview iqeview
 
 CFLAGS = -Wall -g
 
@@ -33,4 +33,4 @@ iqeview: iqeview.c
 	$(CC) -o $@ $(CFLAGS) $(AI_CFLAGS) $< $(AI_LIBS)
 
 clean:
-	rm -f *.o *.exe assiqe assobj assview
+	rm -f *.o *.exe assiqe assview
