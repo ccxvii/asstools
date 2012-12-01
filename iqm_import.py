@@ -2,9 +2,9 @@
 
 bl_info = {
 	"name": "Import Inter-Quake Model (.iqm, .iqe)",
-	"description": "Import Inter-Quake and Inter-Quake Export models.",
+	"description": "Import Inter-Quake Model.",
 	"author": "Tor Andersson",
-	"version": (2012, 11, 28),
+	"version": (2012, 12, 1),
 	"blender": (2, 6, 4),
 	"location": "File > Import > Inter-Quake Model",
 	"wiki_url": "http://github.com/ccxvii/asstools",
@@ -137,8 +137,7 @@ def load_iqe(filename):
 		elif line[0] == "vb":
 			curmesh.blends.append(tuple([float(x) for x in line[1:]]))
 		elif line[0] == "fm":
-			a,b,c = int(line[1]), int(line[2]), int(line[3])
-			curmesh.faces.append((a,b,c))
+			curmesh.faces.append(tuple([int(x) for x in line[1:]]))
 		elif line[0] == "fa": raise Exception("fa style faces not implemented yet")
 		elif line[0] == "animation":
 			curanim = IQAnimation(line[1])
@@ -545,10 +544,16 @@ def gather_meshes(iqmodel):
 
 def reorder(f, ft, fc):
 	# funny shit! see bpy_extras.io_utils.unpack_face_list()
-	if f[2] == 0:
-		f = f[1], f[2], f[0]
-		ft = ft[1], ft[2], ft[0]
-		fc = fc[1], fc[2], fc[0]
+	if len(f) == 3:
+		if f[2] == 0:
+			f = f[1], f[2], f[0]
+			ft = ft[1], ft[2], ft[0]
+			fc = fc[1], fc[2], fc[0]
+	else: # assume quad
+		if f[3] == 0 or f[2] == 0:
+			f = f[2], f[3], f[0], f[1]
+			ft = ft[2], ft[3], ft[0], ft[1]
+			fc = fc[2], fc[3], fc[0], fc[1]
 	return f, ft, fc
 
 def make_mesh_data(iqmodel, name, meshes, amtobj, dir):
@@ -570,7 +575,7 @@ def make_mesh_data(iqmodel, name, meshes, amtobj, dir):
 	# Flip winding and UV coords.
 
 	for iqmesh in meshes:
-		iqmesh.faces = [(c,b,a) for (a,b,c) in iqmesh.faces]
+		iqmesh.faces = [x[::-1] for x in iqmesh.faces]
 		iqmesh.texcoords = [(u,1-v) for (u,v) in iqmesh.texcoords]
 
 	# Blender has texcoords and colors on faces rather than vertices.
