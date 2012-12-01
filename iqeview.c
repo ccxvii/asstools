@@ -306,13 +306,21 @@ static void loadmodel(char *filename)
 		} else if (!strcmp(s, "fm")) {
 			int x = parseint(&sp, 0);
 			int y = parseint(&sp, 0);
-			int z = parseint(&sp, 0);
-			addtriangle(x+fm, y+fm, z+fm);
+			int z = parseint(&sp, -1);
+			while (z > -1) {
+				addtriangle(x+fm, y+fm, z+fm);
+				y = z;
+				z = parseint(&sp, -1);
+			}
 		} else if (!strcmp(s, "fa")) {
 			int x = parseint(&sp, 0);
 			int y = parseint(&sp, 0);
-			int z = parseint(&sp, 0);
-			addtriangle(x, y, z);
+			int z = parseint(&sp, -1);
+			while (z > -1) {
+				addtriangle(x, y, z);
+				y = z;
+				z = parseint(&sp, -1);
+			}
 		} else if (!strcmp(s, "mesh")) {
 			if (mesh) {
 				mesh->count = element.len - mesh->first;
@@ -357,8 +365,8 @@ void drawmodel(void)
 	int i;
 
 	glEnableClientState(GL_VERTEX_ARRAY);
-	glEnableClientState(GL_TEXTURE_COORD_ARRAY);
-	glEnableClientState(GL_NORMAL_ARRAY);
+	if (texcoord.len) glEnableClientState(GL_TEXTURE_COORD_ARRAY);
+	if (normal.len) glEnableClientState(GL_NORMAL_ARRAY);
 
 	glVertexPointer(3, GL_FLOAT, 0, position.data);
 	glNormalPointer(GL_FLOAT, 0, normal.data);
