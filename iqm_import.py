@@ -55,11 +55,22 @@ class IQMesh:
 		self.name = name
 		self.material = None
 		self.faces = []
-		self.positions = []
-		self.normals = []
-		self.texcoords = []
-		self.colors = []
-		self.blends = []
+		self.vp = []
+		self.vn = []
+		self.vt = []
+		self.vc = []
+		self.vbi = []
+		self.vbw = []
+		self.v0 = []
+		self.v1 = []
+		self.v2 = []
+		self.v3 = []
+		self.v4 = []
+		self.v5 = []
+		self.v6 = []
+		self.v7 = []
+		self.v8 = []
+		self.v9 = []
 
 class IQBone:
 	def __init__(self, name, parent):
@@ -89,6 +100,8 @@ class IQModel:
 		self.bindpose = []
 		self.meshes = []
 		self.anims = []
+		self.custom_name = {}
+		self.custom_size = {}
 
 #
 # IQE parser
@@ -111,6 +124,11 @@ def load_iqe(filename):
 			line = line.split()
 		if len(line) == 0:
 			pass
+		elif line[0] == "vertexarray":
+			if line[1].startswith("custom"):
+				N = int(line[1][6:])
+				model.custom_name[N] = line[4] if len(line) > 4 else line[1]
+				model.custom_size[N] = int(line[3])
 		elif line[0] == "joint":
 			model.bones.append(IQBone(line[1], int(line[2])))
 		elif line[0] == "pq":
@@ -122,20 +140,30 @@ def load_iqe(filename):
 			model.meshes.append(curmesh)
 		elif line[0] == "material":
 			curmesh.material = line[1].split("+")
-		elif line[0] == "vp":
-			x,y,z = float(line[1]), float(line[2]), float(line[3])
-			curmesh.positions.append((x,y,z))
-		elif line[0] == "vt":
-			u,v = float(line[1]), float(line[2])
-			curmesh.texcoords.append((u,v))
-		elif line[0] == "vn":
-			x,y,z = float(line[1]), float(line[2]), float(line[3])
-			curmesh.normals.append((x,y,z))
-		elif line[0] == "vc":
-			r,g,b = float(line[1]), float(line[2]), float(line[3])
-			curmesh.colors.append((r,g,b))
+		elif line[0] == "vp": curmesh.vp.append(tuple([float(x) for x in line[1:]]))
+		elif line[0] == "vn": curmesh.vn.append(tuple([float(x) for x in line[1:]]))
+		elif line[0] == "vt": curmesh.vt.append(tuple([float(x) for x in line[1:]]))
+		elif line[0] == "vc": curmesh.vc.append(tuple([float(x) for x in line[1:]]))
+		elif line[0] == "v0": curmesh.v0.append(tuple([float(x) for x in line[1:]]))
+		elif line[0] == "v1": curmesh.v1.append(tuple([float(x) for x in line[1:]]))
+		elif line[0] == "v2": curmesh.v2.append(tuple([float(x) for x in line[1:]]))
+		elif line[0] == "v3": curmesh.v3.append(tuple([float(x) for x in line[1:]]))
+		elif line[0] == "v4": curmesh.v4.append(tuple([float(x) for x in line[1:]]))
+		elif line[0] == "v5": curmesh.v5.append(tuple([float(x) for x in line[1:]]))
+		elif line[0] == "v6": curmesh.v6.append(tuple([float(x) for x in line[1:]]))
+		elif line[0] == "v7": curmesh.v7.append(tuple([float(x) for x in line[1:]]))
+		elif line[0] == "v8": curmesh.v8.append(tuple([float(x) for x in line[1:]]))
+		elif line[0] == "v9": curmesh.v9.append(tuple([float(x) for x in line[1:]]))
 		elif line[0] == "vb":
-			curmesh.blends.append(tuple([float(x) for x in line[1:]]))
+			vbi = []
+			vbw = []
+			i = 1
+			while i + 1 < len(line):
+				vbi.append(int(line[i]))
+				vbw.append(float(line[i+1]))
+				i = i + 2
+			curmesh.vbi.append(tuple(vbi))
+			curmesh.vbw.append(tuple(vbw))
 		elif line[0] == "fm":
 			curmesh.faces.append(tuple([int(x) for x in line[1:]]))
 		elif line[0] == "fa": raise Exception("fa style faces not implemented yet")
@@ -161,6 +189,7 @@ IQM_NORMAL = 2
 IQM_BLENDINDEXES = 4
 IQM_BLENDWEIGHTS = 5
 IQM_COLOR = 6
+IQM_CUSTOM = 0x10
 
 IQM_BYTE = 0
 IQM_UBYTE = 1
@@ -222,9 +251,9 @@ def load_iqm(filename):
 
 	load_iqm_joints(model, file, text, num_joints, ofs_joints)
 
-	valist = load_iqm_vertexarrays(file, num_vertexarrays, num_vertexes, ofs_vertexarrays)
+	vadata = load_iqm_vertexarrays(model, file, text, num_vertexarrays, num_vertexes, ofs_vertexarrays)
 	triangles = load_iqm_structs(file, "<3I", num_triangles, ofs_triangles)
-	load_iqm_meshes(model, file, text, num_meshes, ofs_meshes, valist, triangles)
+	load_iqm_meshes(model, file, text, num_meshes, ofs_meshes, vadata, triangles)
 
 	poses = load_iqm_structs(file, "<iI20f", num_poses, ofs_poses)
 	frames = load_iqm_structs(file, "<" + "H" * num_framechannels, num_frames, ofs_frames)
@@ -247,39 +276,64 @@ def load_iqm_vertexarray(file, format, size, offset, count):
 		raise Exception("unknown vertex array data type: %d" % format)
 	return load_iqm_structs(file, "<" + IQM_FORMAT[format] * size, count, offset)
 
-def load_iqm_vertexarrays(file, num_vertexarrays, num_vertexes, ofs_vertexarrays):
+def normalize(format, input):
+	if format == IQM_BYTE: return [ tuple([x/127.0 for x in v]) for v in input ]
+	if format == IQM_UBYTE: return [ tuple([x/255.0 for x in v]) for v in input ]
+	if format == IQM_SHORT: return [ tuple([x/32767.0 for x in v]) for v in input ]
+	if format == IQM_USHORT: return [ tuple([x/65535.0 for x in v]) for v in input ]
+	if format == IQM_INT: return [ tuple([x/2147483647.0 for x in v]) for v in input ]
+	if format == IQM_UINT: return [ tuple([x/4294967295.0 for x in v]) for v in input ]
+	return input
+
+def load_iqm_vertexarrays(model, file, text, num_vertexarrays, num_vertexes, ofs_vertexarrays):
 	va = load_iqm_structs(file, "<5I", num_vertexarrays, ofs_vertexarrays)
-	valist = {}
+	model.custom_name = []
+	model.custom_size = []
+	vadata = {}
 	for type, flags, format, size, offset in va:
-		valist[type] = load_iqm_vertexarray(file, format, size, offset, num_vertexes)
-	return valist
+		if type >= IQM_CUSTOM:
+			name = cstr(text, type - IQM_CUSTOM)
+			type = len(model.custom_name) + IQM_CUSTOM
+			model.custom_name.append(name)
+			model.custom_size.append(size)
+		vadata[type] = load_iqm_vertexarray(file, format, size, offset, num_vertexes)
+		if type != IQM_BLENDINDEXES:
+			 vadata[type] = normalize(format, vadata[type])
+	return vadata
 
-def copy_iqm_verts(mesh, valist, first, count):
+def copy_iqm_verts(mesh, vadata, first, count):
 	for n in range(first, first+count):
-		if IQM_POSITION in valist:
-			mesh.positions.append(valist[IQM_POSITION][n])
-		if IQM_NORMAL in valist:
-			mesh.normals.append(valist[IQM_NORMAL][n])
-		if IQM_TEXCOORD in valist:
-			mesh.texcoords.append(valist[IQM_TEXCOORD][n])
-		if IQM_COLOR in valist:
-			r, g, b, a = valist[IQM_COLOR][n]
-			mesh.colors.append((r/255.0, g/255.0, b/255.0, a/255.0))
-		if IQM_BLENDINDEXES in valist and IQM_BLENDWEIGHTS in valist:
-			vb = []
+		if IQM_POSITION in vadata: mesh.vp.append(vadata[IQM_POSITION][n])
+		if IQM_NORMAL in vadata: mesh.vn.append(vadata[IQM_NORMAL][n])
+		if IQM_TEXCOORD in vadata: mesh.vt.append(vadata[IQM_TEXCOORD][n])
+		if IQM_COLOR in vadata: mesh.vc.append(vadata[IQM_COLOR][n])
+		if IQM_BLENDINDEXES in vadata and IQM_BLENDWEIGHTS in vadata:
+			vbi = []
+			vbw = []
 			for y in range(4):
-				if valist[IQM_BLENDWEIGHTS][n][y] > 0:
-					vb.append(valist[IQM_BLENDINDEXES][n][y])
-					vb.append(valist[IQM_BLENDWEIGHTS][n][y]/255.0)
-			mesh.blends.append(tuple(vb))
+				if vadata[IQM_BLENDWEIGHTS][n][y] > 0:
+					vbi.append(vadata[IQM_BLENDINDEXES][n][y])
+					vbw.append(vadata[IQM_BLENDWEIGHTS][n][y])
+			mesh.vbi.append(tuple(vbi))
+			mesh.vbw.append(tuple(vbw))
+		if IQM_CUSTOM+0 in vadata: mesh.v0.append(vadata[IQM_CUSTOM+0][n])
+		if IQM_CUSTOM+1 in vadata: mesh.v1.append(vadata[IQM_CUSTOM+1][n])
+		if IQM_CUSTOM+2 in vadata: mesh.v2.append(vadata[IQM_CUSTOM+2][n])
+		if IQM_CUSTOM+3 in vadata: mesh.v3.append(vadata[IQM_CUSTOM+3][n])
+		if IQM_CUSTOM+4 in vadata: mesh.v4.append(vadata[IQM_CUSTOM+4][n])
+		if IQM_CUSTOM+5 in vadata: mesh.v5.append(vadata[IQM_CUSTOM+5][n])
+		if IQM_CUSTOM+6 in vadata: mesh.v6.append(vadata[IQM_CUSTOM+6][n])
+		if IQM_CUSTOM+7 in vadata: mesh.v7.append(vadata[IQM_CUSTOM+7][n])
+		if IQM_CUSTOM+8 in vadata: mesh.v8.append(vadata[IQM_CUSTOM+8][n])
+		if IQM_CUSTOM+9 in vadata: mesh.v9.append(vadata[IQM_CUSTOM+9][n])
 
-def load_iqm_meshes(model, file, text, num_meshes, ofs_meshes, valist, triangles):
+def load_iqm_meshes(model, file, text, num_meshes, ofs_meshes, vadata, triangles):
 	file.seek(ofs_meshes)
 	for n in range(num_meshes):
 		name, material, vfirst, vcount, tfirst, tcount = struct.unpack("<6I", file.read(6*4))
 		mesh = IQMesh(cstr(text, name))
 		mesh.material = cstr(text, material).split("+")
-		copy_iqm_verts(mesh, valist, vfirst, vcount)
+		copy_iqm_verts(mesh, vadata, vfirst, vcount)
 		mesh.faces = [(a-vfirst, b-vfirst, c-vfirst) for a,b,c in triangles[tfirst:tfirst+tcount]]
 		model.meshes.append(mesh)
 
@@ -567,16 +621,20 @@ def make_mesh_data(iqmodel, name, meshes, amtobj, dir):
 	# Set the mesh to single-sided to spot normal errors
 	mesh.show_double_sided = False
 
-	has_normals = len(iqmodel.meshes[0].normals) > 0
-	has_texcoords = len(iqmodel.meshes[0].texcoords) > 0
-	has_colors = len(iqmodel.meshes[0].colors) > 0
-	has_blends = len(iqmodel.meshes[0].blends) > 0
+	has_vn = len(iqmodel.meshes[0].vn) > 0
+	has_vt = len(iqmodel.meshes[0].vt) > 0
+	has_vc = len(iqmodel.meshes[0].vc) > 0
+	has_vb = len(iqmodel.meshes[0].vbi) > 0 and len(iqmodel.meshes[0].vbw) == len(iqmodel.meshes[0].vbi)
+	has_v0 = len(iqmodel.meshes[0].v0) > 0
+	has_v1 = len(iqmodel.meshes[0].v1) > 0
+	has_v2 = len(iqmodel.meshes[0].v2) > 0
+	has_v3 = len(iqmodel.meshes[0].v3) > 0
 
 	# Flip winding and UV coords.
 
 	for iqmesh in meshes:
 		iqmesh.faces = [x[::-1] for x in iqmesh.faces]
-		iqmesh.texcoords = [(u,1-v) for (u,v) in iqmesh.texcoords]
+		iqmesh.vt = [(u,1-v) for (u,v) in iqmesh.vt]
 
 	# Blender has texcoords and colors on faces rather than vertices.
 	# Create material slots for all materials used.
@@ -591,7 +649,12 @@ def make_mesh_data(iqmodel, name, meshes, amtobj, dir):
 	new_fm_i = []
 	new_vp = []
 	new_vn = []
-	new_vb = []
+	new_vbi = []
+	new_vbw = []
+	new_v0 = []
+	new_v1 = []
+	new_v2 = []
+	new_v3 = []
 
 	for iqmesh in meshes:
 		material, image = make_material(iqmesh.material, dir)
@@ -604,18 +667,28 @@ def make_mesh_data(iqmodel, name, meshes, amtobj, dir):
 			ft = []
 			fc = []
 			for iqvert in iqface:
-				vp = iqmesh.positions[iqvert]
-				vn = iqmesh.normals[iqvert] if has_normals else (1,0,0)
-				vb = iqmesh.blends[iqvert] if has_blends else (0,1)
-				vertex = (vp, vn, vb)
+				vp = iqmesh.vp[iqvert]
+				vn = iqmesh.vn[iqvert] if has_vn else None
+				vbi = iqmesh.vbi[iqvert] if has_vb else None
+				vbw = iqmesh.vbw[iqvert] if has_vb else None
+				v0 = iqmesh.v0[iqvert] if has_v0 else None
+				v1 = iqmesh.v1[iqvert] if has_v1 else None
+				v2 = iqmesh.v2[iqvert] if has_v2 else None
+				v3 = iqmesh.v3[iqvert] if has_v3 else None
+				vertex = (vp, vn, vbi, vbw, v0, v1, v2, v3)
 				if not vertex in vertex_map:
 					vertex_map[vertex] = len(new_vp)
 					new_vp.append(vp)
 					new_vn.append(vn)
-					new_vb.append(vb)
+					new_vbi.append(vbi)
+					new_vbw.append(vbw)
+					new_v0.append(v0)
+					new_v1.append(v1)
+					new_v2.append(v2)
+					new_v3.append(v3)
 				f.append(vertex_map[vertex])
-				ft.append(iqmesh.texcoords[iqvert] if has_texcoords else None)
-				fc.append(iqmesh.colors[iqvert] if has_colors else None)
+				ft.append(iqmesh.vt[iqvert] if has_vt else None)
+				fc.append(iqmesh.vc[iqvert] if has_vc else None)
 			f, ft, fc = reorder(f, ft, fc)
 			new_f.append(f)
 			new_ft.append(ft)
@@ -635,8 +708,8 @@ def make_mesh_data(iqmodel, name, meshes, amtobj, dir):
 
 	# Set up UV and Color layers
 
-	uvlayer = mesh.tessface_uv_textures.new() if has_texcoords else None
-	clayer = mesh.tessface_vertex_colors.new() if has_colors else None
+	uvlayer = mesh.tessface_uv_textures.new() if has_vt else None
+	clayer = mesh.tessface_vertex_colors.new() if has_vc else None
 
 	for i, face in enumerate(mesh.tessfaces):
 		face.use_smooth = True
@@ -653,21 +726,58 @@ def make_mesh_data(iqmodel, name, meshes, amtobj, dir):
 
 	# Vertex groups and armature modifier for skinning
 
-	if has_blends and amtobj:
+	if has_vb and amtobj:
 		for iqbone in iqmodel.bones:
 			obj.vertex_groups.new(iqbone.name)
 
 		for vgroup in obj.vertex_groups:
-			for v, blend in enumerate(new_vb):
-				for k in range(0, len(blend), 2):
-					bi = blend[k]
-					bw = blend[k+1]
+			for v, vbi in enumerate(new_vbi):
+				for i, bi in enumerate(vbi):
+					bw = new_vbw[v][i]
 					if bi == vgroup.index:
-						vgroup.add([v], bw, 'ADD')
+						vgroup.add([v], bw, 'REPLACE')
 
 		mod = obj.modifiers.new("Armature", 'ARMATURE')
 		mod.object = amtobj
 		mod.use_vertex_groups = True
+
+	# Vertex groups for custom attributes
+
+	def make_custom_vgroup(obj, name, size, vdata):
+		print("make custom vertex group", name, size)
+		if size == 1:
+			xg = obj.vertex_groups.new(name)
+			for i, v in enumerate(vdata):
+				xg.add([i], v[0], 'REPLACE')
+		if size == 2:
+			xg = obj.vertex_groups.new(name + ".x")
+			yg = obj.vertex_groups.new(name + ".y")
+			for i, v in enumerate(vdata):
+				xg.add([i], v[0], 'REPLACE')
+				yg.add([i], v[1], 'REPLACE')
+		if size == 3:
+			xg = obj.vertex_groups.new(name + ".x")
+			yg = obj.vertex_groups.new(name + ".y")
+			zg = obj.vertex_groups.new(name + ".z")
+			for i, v in enumerate(vdata):
+				xg.add([i], v[0], 'REPLACE')
+				yg.add([i], v[1], 'REPLACE')
+				zg.add([i], v[2], 'REPLACE')
+		if size == 4:
+			xg = obj.vertex_groups.new(name + ".x")
+			yg = obj.vertex_groups.new(name + ".y")
+			zg = obj.vertex_groups.new(name + ".z")
+			wg = obj.vertex_groups.new(name + ".z")
+			for i, v in enumerate(vdata):
+				xg.add([i], v[0], 'REPLACE')
+				yg.add([i], v[1], 'REPLACE')
+				zg.add([i], v[2], 'REPLACE')
+				wg.add([i], v[3], 'REPLACE')
+
+	if has_v0: make_custom_vgroup(obj, iqmodel.custom_name[0], iqmodel.custom_size[0], new_v0)
+	if has_v1: make_custom_vgroup(obj, iqmodel.custom_name[1], iqmodel.custom_size[1], new_v1)
+	if has_v2: make_custom_vgroup(obj, iqmodel.custom_name[2], iqmodel.custom_size[2], new_v2)
+	if has_v3: make_custom_vgroup(obj, iqmodel.custom_name[3], iqmodel.custom_size[3], new_v3)
 
 	# Update mesh polygons from tessfaces
 
