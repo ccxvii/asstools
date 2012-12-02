@@ -143,6 +143,7 @@ def load_verts(file, text, num_vertexarrays, num_vertexes, ofs_vertexarrays):
 		va = struct.unpack("<5I", file.read(5*4))
 		valist += (va,)
 	verts = [None] * (16+10)
+	vafmt = [None] * (16+10)
 	for type, flags, format, size, offset in valist:
 		if type < 16:
 			type_name = iqm_va_type[type]
@@ -150,10 +151,12 @@ def load_verts(file, text, num_vertexarrays, num_vertexes, ofs_vertexarrays):
 			type_name = cstr(text, type - 16)
 			type = custom
 			custom = custom + 1
+		vafmt[type] = format
 		verts[type] = load_array(file, format, size, offset, num_vertexes)
+		if type != 4 and format == 7: verts[type]
 		if type >= 16: print("vertexarray", iqm_va_type[type], iqm_va_format[format], size, type_name)
 		else: print("vertexarray", iqm_va_type[type], iqm_va_format[format], size)
-	return verts
+	return vafmt, verts
 
 def load_tris(file, num_triangles, ofs_triangles, ofs_adjacency):
 	file.seek(ofs_triangles)
@@ -163,7 +166,7 @@ def load_tris(file, num_triangles, ofs_triangles, ofs_adjacency):
 		tris.append(tri)
 	return tris
 
-def dump_verts(verts, first, count):
+def dump_verts(vafmt, verts, first, count):
 	for x in range(first, first+count):
 		if verts[0]: print("vp", fmtv(verts[0][x]))
 		if verts[1]: print("vt", fmtv(verts[1][x]))
@@ -179,14 +182,15 @@ def dump_verts(verts, first, count):
 		if verts[6]:
 			print("vc", fmtb(verts[6][x]))
 		for i in range(16, 16+10):
-			if verts[i]: print("v%d" % (i-16), fmtv(verts[i][x]))
+			if verts[i] and vafmt[i] == 1: print("v%d" % (i-16), fmtb(verts[i][x]))
+			if verts[i] and vafmt[i] == 7: print("v%d" % (i-16), fmtv(verts[i][x]))
 
 def dump_tris(tris, first, count, fv):
 	for x in range(first, first+count):
 		tri = tris[x]
 		print("fm", tri[0]-fv, tri[1]-fv, tri[2]-fv)
 
-def dump_meshes(file, text, num_meshes, ofs_meshes, verts, tris):
+def dump_meshes(file, text, num_meshes, ofs_meshes, vafmt, verts, tris):
 	file.seek(ofs_meshes)
 	for x in range(num_meshes):
 		mesh = struct.unpack("<6I", file.read(6*4))
@@ -196,7 +200,7 @@ def dump_meshes(file, text, num_meshes, ofs_meshes, verts, tris):
 		print()
 		print("mesh", name)
 		print("material", material)
-		dump_verts(verts, v1, vnum)
+		dump_verts(vafmt, verts, v1, vnum)
 		dump_tris(tris, t1, tnum, v1)
 
 def dump_iqm(file):
@@ -229,11 +233,11 @@ def dump_iqm(file):
 	if ofs_joints:
 		dump_joints(file, text, num_joints, ofs_joints)
 	if ofs_vertexarrays:
-		verts = load_verts(file, text, num_vertexarrays, num_vertexes, ofs_vertexarrays)
+		vafmt, verts = load_verts(file, text, num_vertexarrays, num_vertexes, ofs_vertexarrays)
 	if ofs_triangles:
 		tris = load_tris(file, num_triangles, ofs_triangles, ofs_adjacency)
 	if ofs_meshes:
-		dump_meshes(file, text, num_meshes, ofs_meshes, verts, tris)
+		dump_meshes(file, text, num_meshes, ofs_meshes, vafmt, verts, tris)
 	poses = load_poses(file, num_poses, ofs_poses)
 	frames = load_frames(file, num_frames, num_framechannels, ofs_frames)
 	# bounds are auto-computed, no need to load
