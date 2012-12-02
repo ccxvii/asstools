@@ -1,10 +1,15 @@
 # Inter-Quake Export
+#
+# TODO: generalize vertex array output logic
+# TODO: multiple vertex color layers
+# TODO: multiple texture coordinate layers
+#
 
 bl_info = {
 	"name": "Export Inter-Quake Model (.iqe)",
 	"description": "Export Inter-Quake Model.",
 	"author": "Tor Andersson",
-	"version": (2012, 12, 1),
+	"version": (2012, 12, 2),
 	"blender": (2, 6, 4),
 	"location": "File > Export > Inter-Quake Model",
 	"wiki_url": "http://github.com/ccxvii/asstools",
@@ -93,7 +98,13 @@ def export_mesh(file, mesh, mesh_name, vertex_groups, bone_map, custom):
 				v1 = len(custom) > 1 and make_custom(mesh.vertices[v].groups, vertex_groups, custom[1])
 				v2 = len(custom) > 2 and make_custom(mesh.vertices[v].groups, vertex_groups, custom[2])
 				v3 = len(custom) > 3 and make_custom(mesh.vertices[v].groups, vertex_groups, custom[3])
-				v = vp, vn, vt, vc, vb, v0, v1, v2, v3
+				v4 = len(custom) > 4 and make_custom(mesh.vertices[v].groups, vertex_groups, custom[4])
+				v5 = len(custom) > 5 and make_custom(mesh.vertices[v].groups, vertex_groups, custom[5])
+				v6 = len(custom) > 6 and make_custom(mesh.vertices[v].groups, vertex_groups, custom[6])
+				v7 = len(custom) > 7 and make_custom(mesh.vertices[v].groups, vertex_groups, custom[7])
+				v8 = len(custom) > 8 and make_custom(mesh.vertices[v].groups, vertex_groups, custom[8])
+				v9 = len(custom) > 9 and make_custom(mesh.vertices[v].groups, vertex_groups, custom[9])
+				v = vp, vn, vt, vc, vb, v0, v1, v2, v3, v4, v5, v6, v7, v8, v9
 				if v not in vertex_map:
 					vertex_map[v] = len(vertex_list)
 					vertex_list.append(v)
@@ -103,7 +114,7 @@ def export_mesh(file, mesh, mesh_name, vertex_groups, bone_map, custom):
 		file.write("\n")
 		file.write("mesh \"%s\"\n" % mesh_name)
 		file.write("material \"%s\"\n" % mesh.materials[fm].name)
-		for vp, vn, vt, vc, vb, v0, v1, v2, v3 in vertex_list:
+		for vp, vn, vt, vc, vb, v0, v1, v2, v3, v4, v5, v6, v7, v8, v9 in vertex_list:
 			file.write("vp %.9g %.9g %.9g\n" % vp)
 			file.write("vn %.9g %.9g %.9g\n" % vn)
 			if vt: file.write("vt %.9g %.9g\n" % (vt[0], 1.0 - vt[1]))
@@ -113,6 +124,12 @@ def export_mesh(file, mesh, mesh_name, vertex_groups, bone_map, custom):
 			if v1: file.write("v1 %s\n" % " ".join("%.9g" % x for x in v1))
 			if v2: file.write("v2 %s\n" % " ".join("%.9g" % x for x in v2))
 			if v3: file.write("v3 %s\n" % " ".join("%.9g" % x for x in v3))
+			if v4: file.write("v4 %s\n" % " ".join("%.9g" % x for x in v4))
+			if v5: file.write("v5 %s\n" % " ".join("%.9g" % x for x in v5))
+			if v6: file.write("v6 %s\n" % " ".join("%.9g" % x for x in v6))
+			if v7: file.write("v7 %s\n" % " ".join("%.9g" % x for x in v7))
+			if v8: file.write("v8 %s\n" % " ".join("%.9g" % x for x in v8))
+			if v9: file.write("v9 %s\n" % " ".join("%.9g" % x for x in v9))
 		for f in face_list:
 			if len(f) == 3:
 				file.write("fm %d %d %d\n" % (f[2], f[1], f[0]))
@@ -126,6 +143,8 @@ def write_pose(file, t, r, s):
 	else:
 		file.write("pq %.9g %.9g %.9g %.9g %.9g %.9g %.9g\n" %
 			(t.x, t.y, t.z, r.x, r.y, r.z, r.w))
+
+armature_bone_map = {}
 
 def export_armature(file, amt):
 	bone_map = {}
@@ -147,7 +166,17 @@ def export_armature(file, amt):
 		t, r, s = matrix.decompose()
 		write_pose(file, t, r, s)
 
-	return bone_map
+	armature_bone_map[amt.name] = bone_map
+
+def export_action(file, obj, amt, action):
+	print("action:", action.name, action)
+
+def export_armature_actions(file, obj):
+	old_action = obj.animation_data.action
+	for action in bpy.data.actions:
+		obj.animation_data.action = action
+		export_action(file, obj, obj.data, action)
+	obj.animation_data.action = old_action
 
 def export_object(file, scene, obj):
 	# temporarily disable armature modifiers
@@ -157,9 +186,9 @@ def export_object(file, scene, obj):
 			amtmods.append((mod, mod.show_viewport))
 			mod.show_viewport = False
 
-	amt = obj.find_armature()
+	amtobj = obj.find_armature()
 
-	bone_map = amt and export_armature(file, amt.data)
+	bone_map = amtobj and armature_bone_map[amtobj.data.name]
 
 	custom = export_custom(file, obj.vertex_groups, bone_map)
 
@@ -178,12 +207,19 @@ def export_iqe(filename):
 
 	for scene in bpy.data.scenes:
 		for obj in scene.objects:
+			if obj.type == 'ARMATURE':
+				print("exporting armature", obj.name)
+				export_armature(file, obj.data)
+		for obj in scene.objects:
 			if obj.type == 'MESH':
 				print("exporting object", obj.name)
 				export_object(file, scene, obj)
+		for obj in scene.objects:
+			if obj.type == 'ARMATURE':
+				print("exporting armature actions", obj.name)
+				export_armature_actions(file, obj)
 
 	file.close()
-
 
 #
 # Register addon

@@ -1,10 +1,10 @@
-# Importer for Inter-Quake Model / Export formats
+# Inter-Quake Import
 
 bl_info = {
 	"name": "Import Inter-Quake Model (.iqm, .iqe)",
 	"description": "Import Inter-Quake Model.",
 	"author": "Tor Andersson",
-	"version": (2012, 12, 1),
+	"version": (2012, 12, 2),
 	"blender": (2, 6, 4),
 	"location": "File > Import > Inter-Quake Model",
 	"wiki_url": "http://github.com/ccxvii/asstools",
@@ -271,19 +271,19 @@ def load_iqm_joints(model, file, text, num_joints, ofs_joints):
 		model.bones.append(IQBone(name, parent))
 		model.bindpose.append(IQPose(data[2:12]))
 
-def load_iqm_vertexarray(file, format, size, offset, count):
+def load_iqm_vertexarray(file, type, format, size, offset, count):
 	if format not in IQM_FORMAT:
 		raise Exception("unknown vertex array data type: %d" % format)
-	return load_iqm_structs(file, "<" + IQM_FORMAT[format] * size, count, offset)
-
-def normalize(format, input):
-	if format == IQM_BYTE: return [ tuple([x/127.0 for x in v]) for v in input ]
-	if format == IQM_UBYTE: return [ tuple([x/255.0 for x in v]) for v in input ]
-	if format == IQM_SHORT: return [ tuple([x/32767.0 for x in v]) for v in input ]
-	if format == IQM_USHORT: return [ tuple([x/65535.0 for x in v]) for v in input ]
-	if format == IQM_INT: return [ tuple([x/2147483647.0 for x in v]) for v in input ]
-	if format == IQM_UINT: return [ tuple([x/4294967295.0 for x in v]) for v in input ]
-	return input
+	data = load_iqm_structs(file, "<" + IQM_FORMAT[format] * size, count, offset)
+	if type == IQM_BLENDINDEXES:
+		return data
+	if format == IQM_BYTE: return [ tuple([x/127.0 for x in v]) for v in data ]
+	if format == IQM_UBYTE: return [ tuple([x/255.0 for x in v]) for v in data ]
+	if format == IQM_SHORT: return [ tuple([x/32767.0 for x in v]) for v in data ]
+	if format == IQM_USHORT: return [ tuple([x/65535.0 for x in v]) for v in data ]
+	if format == IQM_INT: return [ tuple([x/2147483647.0 for x in v]) for v in data ]
+	if format == IQM_UINT: return [ tuple([x/4294967295.0 for x in v]) for v in data ]
+	return data
 
 def load_iqm_vertexarrays(model, file, text, num_vertexarrays, num_vertexes, ofs_vertexarrays):
 	va = load_iqm_structs(file, "<5I", num_vertexarrays, ofs_vertexarrays)
@@ -296,9 +296,7 @@ def load_iqm_vertexarrays(model, file, text, num_vertexarrays, num_vertexes, ofs
 			type = len(model.custom_name) + IQM_CUSTOM
 			model.custom_name.append(name)
 			model.custom_size.append(size)
-		vadata[type] = load_iqm_vertexarray(file, format, size, offset, num_vertexes)
-		if type != IQM_BLENDINDEXES:
-			 vadata[type] = normalize(format, vadata[type])
+		vadata[type] = load_iqm_vertexarray(file, type, format, size, offset, num_vertexes)
 	return vadata
 
 def copy_iqm_verts(mesh, vadata, first, count):
@@ -509,21 +507,11 @@ def make_anim(iqmodel, anim, amtobj, bone_axis):
 		make_pose(iqmodel, anim.frames[n], amtobj, bone_axis, n)
 	return action
 
-def make_actions(iqmodel, amtobj, bone_axis, use_nla_tracks):
+def make_actions(iqmodel, amtobj, bone_axis):
 	bpy.context.scene.frame_start = 0
 	amtobj.animation_data_create()
-	if use_nla_tracks:
-		track = amtobj.animation_data.nla_tracks.new()
-		track.name = "All"
-		n = 0
 	for anim in iqmodel.anims:
 		action = make_anim(iqmodel, anim, amtobj, bone_axis)
-		if use_nla_tracks:
-			track.strips.new(action.name, n, action)
-			n = track.strips[-1].frame_end + 1
-	if use_nla_tracks:
-		amtobj.animation_data.action = None
-		bpy.context.scene.frame_end = n - 1
 
 #
 # Create simple material by looking at the magic words.
@@ -629,6 +617,12 @@ def make_mesh_data(iqmodel, name, meshes, amtobj, dir):
 	has_v1 = len(iqmodel.meshes[0].v1) > 0
 	has_v2 = len(iqmodel.meshes[0].v2) > 0
 	has_v3 = len(iqmodel.meshes[0].v3) > 0
+	has_v4 = len(iqmodel.meshes[0].v4) > 0
+	has_v5 = len(iqmodel.meshes[0].v5) > 0
+	has_v6 = len(iqmodel.meshes[0].v6) > 0
+	has_v7 = len(iqmodel.meshes[0].v7) > 0
+	has_v8 = len(iqmodel.meshes[0].v8) > 0
+	has_v9 = len(iqmodel.meshes[0].v9) > 0
 
 	# Flip winding and UV coords.
 
@@ -642,11 +636,13 @@ def make_mesh_data(iqmodel, name, meshes, amtobj, dir):
 	# Create new faces which index these new vertices, and has associated face data.
 
 	vertex_map = {}
+
 	new_f = []
 	new_ft = []
 	new_fc = []
 	new_fm_m = []
 	new_fm_i = []
+
 	new_vp = []
 	new_vn = []
 	new_vbi = []
@@ -655,6 +651,12 @@ def make_mesh_data(iqmodel, name, meshes, amtobj, dir):
 	new_v1 = []
 	new_v2 = []
 	new_v3 = []
+	new_v4 = []
+	new_v5 = []
+	new_v6 = []
+	new_v7 = []
+	new_v8 = []
+	new_v9 = []
 
 	for iqmesh in meshes:
 		material, image = make_material(iqmesh.material, dir)
@@ -675,7 +677,13 @@ def make_mesh_data(iqmodel, name, meshes, amtobj, dir):
 				v1 = iqmesh.v1[iqvert] if has_v1 else None
 				v2 = iqmesh.v2[iqvert] if has_v2 else None
 				v3 = iqmesh.v3[iqvert] if has_v3 else None
-				vertex = (vp, vn, vbi, vbw, v0, v1, v2, v3)
+				v4 = iqmesh.v4[iqvert] if has_v4 else None
+				v5 = iqmesh.v5[iqvert] if has_v5 else None
+				v6 = iqmesh.v6[iqvert] if has_v6 else None
+				v7 = iqmesh.v7[iqvert] if has_v7 else None
+				v8 = iqmesh.v8[iqvert] if has_v8 else None
+				v9 = iqmesh.v9[iqvert] if has_v9 else None
+				vertex = (vp, vn, vbi, vbw, v0, v1, v2, v3, v4, v5, v6, v7, v8, v9)
 				if not vertex in vertex_map:
 					vertex_map[vertex] = len(new_vp)
 					new_vp.append(vp)
@@ -686,6 +694,12 @@ def make_mesh_data(iqmodel, name, meshes, amtobj, dir):
 					new_v1.append(v1)
 					new_v2.append(v2)
 					new_v3.append(v3)
+					new_v4.append(v4)
+					new_v5.append(v5)
+					new_v6.append(v6)
+					new_v7.append(v7)
+					new_v8.append(v8)
+					new_v9.append(v9)
 				f.append(vertex_map[vertex])
 				ft.append(iqmesh.vt[iqvert] if has_vt else None)
 				fc.append(iqmesh.vc[iqvert] if has_vc else None)
@@ -778,6 +792,12 @@ def make_mesh_data(iqmodel, name, meshes, amtobj, dir):
 	if has_v1: make_custom_vgroup(obj, iqmodel.custom_name[1], iqmodel.custom_size[1], new_v1)
 	if has_v2: make_custom_vgroup(obj, iqmodel.custom_name[2], iqmodel.custom_size[2], new_v2)
 	if has_v3: make_custom_vgroup(obj, iqmodel.custom_name[3], iqmodel.custom_size[3], new_v3)
+	if has_v4: make_custom_vgroup(obj, iqmodel.custom_name[4], iqmodel.custom_size[4], new_v4)
+	if has_v5: make_custom_vgroup(obj, iqmodel.custom_name[5], iqmodel.custom_size[5], new_v5)
+	if has_v6: make_custom_vgroup(obj, iqmodel.custom_name[6], iqmodel.custom_size[6], new_v6)
+	if has_v7: make_custom_vgroup(obj, iqmodel.custom_name[7], iqmodel.custom_size[7], new_v7)
+	if has_v8: make_custom_vgroup(obj, iqmodel.custom_name[8], iqmodel.custom_size[8], new_v8)
+	if has_v9: make_custom_vgroup(obj, iqmodel.custom_name[9], iqmodel.custom_size[9], new_v9)
 
 	# Update mesh polygons from tessfaces
 
@@ -791,7 +811,7 @@ def make_mesh_data(iqmodel, name, meshes, amtobj, dir):
 # Otherwise create an empty object and group the meshes in that.
 #
 
-def make_model(iqmodel, bone_axis, dir, use_nla_tracks = False):
+def make_model(iqmodel, bone_axis, dir):
 	print("importing model", iqmodel.name)
 
 	for obj in bpy.context.scene.objects:
@@ -811,17 +831,17 @@ def make_model(iqmodel, bone_axis, dir, use_nla_tracks = False):
 		group.objects.link(meshobj)
 
 	if len(iqmodel.anims) > 0:
-		make_actions(iqmodel, amtobj, bone_axis, use_nla_tracks)
+		make_actions(iqmodel, amtobj, bone_axis)
 
 	print("all done.")
 
-def import_iqm(filename, bone_axis='Y', use_nla_tracks=False):
+def import_iqm(filename, bone_axis='Y'):
 	if filename.endswith(".iqm") or filename.endswith(".IQM"):
 		iqmodel = load_iqm(filename)
 	else:
 		iqmodel = load_iqe(filename)
 	dir = os.path.dirname(filename)
-	make_model(iqmodel, bone_axis, dir, use_nla_tracks)
+	make_model(iqmodel, bone_axis, dir)
 	bpy.ops.screen.frame_jump()
 
 #
@@ -845,12 +865,8 @@ class ImportIQM(bpy.types.Operator, ImportHelper):
 			],
 			default='Y')
 
-	use_nla_tracks = BoolProperty(name="Create NLA track",
-			description="Create NLA track containing all actions",
-			default=False)
-
 	def execute(self, context):
-		import_iqm(self.properties.filepath, self.bone_axis, self.properties.use_nla_tracks)
+		import_iqm(self.properties.filepath, self.bone_axis)
 		return {'FINISHED'}
 
 def menu_func(self, context):
