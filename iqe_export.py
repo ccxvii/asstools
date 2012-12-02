@@ -25,7 +25,43 @@ def make_blend(groups, vertex_groups, bone_map):
 			vb += [ bone_map[n], g.weight ]
 	return tuple(vb)
 
-def export_mesh(file, mesh, mesh_name, vertex_groups, bone_map):
+def make_custom(groups, vertex_groups, custom):
+	name, count = custom
+	x, y, z, w = 0, 0, 0, 0
+	for g in groups:
+		if count == 1 and vertex_groups[g.group].name == name: x = g.weight
+		if count >= 1 and vertex_groups[g.group].name == name + ".x": x = g.weight
+		if count >= 2 and vertex_groups[g.group].name == name + ".y": y = g.weight
+		if count >= 3 and vertex_groups[g.group].name == name + ".z": z = g.weight
+		if count >= 4 and vertex_groups[g.group].name == name + ".w": w = g.weight
+	if count == 1: return (x,)
+	if count == 2: return x, y
+	if count == 3: return x, y, z
+	return x, y, z, w
+
+def export_custom(file, vertex_groups, bone_map):
+	custom = {}
+	for g in vertex_groups:
+		if not g.name in bone_map:
+			if g.name.endswith('.x'): name, count = g.name[:-2], 1
+			elif g.name.endswith('.y'): name, count = g.name[:-2], 2
+			elif g.name.endswith('.z'): name, count = g.name[:-2], 3
+			elif g.name.endswith('.w'): name, count = g.name[:-2], 4
+			else: name, count = g.name, 1
+			if name in custom:
+				custom[name] = max(count, custom[name])
+			else:
+				custom[name] = count
+	list = []
+	if len(custom):
+		file.write("\n")
+	for name in custom:
+		count = custom[name]
+		file.write("vertexarray custom%d ubyte %d \"%s\"\n" % (len(list), count, name))
+		list.append((name, count))
+	return list
+
+def export_mesh(file, mesh, mesh_name, vertex_groups, bone_map, custom):
 	texcoords = mesh.tessface_uv_textures.active
 	colors = mesh.tessface_vertex_colors.active
 
@@ -53,7 +89,11 @@ def export_mesh(file, mesh, mesh_name, vertex_groups, bone_map):
 				vt = ft and tuple(ft[i])
 				vc = fc and tuple(fc[i])
 				vb = bone_map and make_blend(mesh.vertices[v].groups, vertex_groups, bone_map)
-				v = vp, vn, vt, vc, vb
+				v0 = len(custom) > 0 and make_custom(mesh.vertices[v].groups, vertex_groups, custom[0])
+				v1 = len(custom) > 1 and make_custom(mesh.vertices[v].groups, vertex_groups, custom[1])
+				v2 = len(custom) > 2 and make_custom(mesh.vertices[v].groups, vertex_groups, custom[2])
+				v3 = len(custom) > 3 and make_custom(mesh.vertices[v].groups, vertex_groups, custom[3])
+				v = vp, vn, vt, vc, vb, v0, v1, v2, v3
 				if v not in vertex_map:
 					vertex_map[v] = len(vertex_list)
 					vertex_list.append(v)
@@ -63,12 +103,16 @@ def export_mesh(file, mesh, mesh_name, vertex_groups, bone_map):
 		file.write("\n")
 		file.write("mesh \"%s\"\n" % mesh_name)
 		file.write("material \"%s\"\n" % mesh.materials[fm].name)
-		for vp, vn, vt, vc, vb in vertex_list:
+		for vp, vn, vt, vc, vb, v0, v1, v2, v3 in vertex_list:
 			file.write("vp %.9g %.9g %.9g\n" % vp)
 			file.write("vn %.9g %.9g %.9g\n" % vn)
 			if vt: file.write("vt %.9g %.9g\n" % (vt[0], 1.0 - vt[1]))
 			if vc: file.write("vc %.9g %.9g %.9g\n" % vc)
 			if vb: file.write("vb %s\n" % " ".join("%.9g" % x for x in vb))
+			if v0: file.write("v0 %s\n" % " ".join("%.9g" % x for x in v0))
+			if v1: file.write("v1 %s\n" % " ".join("%.9g" % x for x in v1))
+			if v2: file.write("v2 %s\n" % " ".join("%.9g" % x for x in v2))
+			if v3: file.write("v3 %s\n" % " ".join("%.9g" % x for x in v3))
 		for f in face_list:
 			if len(f) == 3:
 				file.write("fm %d %d %d\n" % (f[2], f[1], f[0]))
@@ -83,9 +127,7 @@ def write_pose(file, t, r, s):
 		file.write("pq %.9g %.9g %.9g %.9g %.9g %.9g %.9g\n" %
 			(t.x, t.y, t.z, r.x, r.y, r.z, r.w))
 
-def export_armature(file, amtobj):
-	amt = amtobj.data
-
+def export_armature(file, amt):
 	bone_map = {}
 	bone_list = []
 
@@ -107,6 +149,29 @@ def export_armature(file, amtobj):
 
 	return bone_map
 
+def export_object(file, scene, obj):
+	# temporarily disable armature modifiers
+	amtmods = []
+	for mod in obj.modifiers:
+		if mod.type == 'ARMATURE':
+			amtmods.append((mod, mod.show_viewport))
+			mod.show_viewport = False
+
+	amt = obj.find_armature()
+
+	bone_map = amt and export_armature(file, amt.data)
+
+	custom = export_custom(file, obj.vertex_groups, bone_map)
+
+	mesh = obj.to_mesh(scene, True, 'PREVIEW')
+	mesh.calc_tessface()
+	export_mesh(file, mesh, obj.name, obj.vertex_groups, bone_map, custom)
+	bpy.data.meshes.remove(mesh)
+
+	# restore armature modifiers
+	for mod, show_viewport in amtmods:
+		mod.show_viewport = show_viewport
+
 def export_iqe(filename):
 	file = open(filename, "w")
 	file.write("# Inter-Quake Export\n")
@@ -115,28 +180,10 @@ def export_iqe(filename):
 		for obj in scene.objects:
 			if obj.type == 'MESH':
 				print("exporting object", obj.name)
+				export_object(file, scene, obj)
 
-				# temporarily disable armature modifiers
-				amtmods = []
-				for mod in obj.modifiers:
-					if mod.type == 'ARMATURE':
-						amtmods.append((mod, mod.show_viewport))
-						mod.show_viewport = False
+	file.close()
 
-				amt = obj.find_armature()
-				if amt:
-					bone_map = amt and export_armature(file, amt)
-				else:
-					bone_map = None
-
-				mesh = obj.to_mesh(scene, True, 'PREVIEW')
-				mesh.calc_tessface()
-				export_mesh(file, mesh, obj.name, obj.vertex_groups, bone_map)
-				bpy.data.meshes.remove(mesh)
-
-				# restore armature modifiers
-				for mod, show_viewport in amtmods:
-					mod.show_viewport = show_viewport
 
 #
 # Register addon
