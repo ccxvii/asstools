@@ -528,7 +528,7 @@ def make_material(iqmaterial, dir):
 
 	# reuse materials if possible
 	if matname in bpy.data.materials:
-		return bpy.data.materials[matname], images[texname]
+		return bpy.data.materials[matname], images.get(texname)
 
 	twosided = 'twosided' in iqmaterial
 	alphatest = 'alphatest' in iqmaterial
