@@ -205,36 +205,42 @@ def export_action(file, scene, obj, amt, bones, action):
 		file.write("frame %d\n" % time)
 		export_frame(file, obj, amt, bones)
 
-def export_armature_actions(file, scene, obj, bones):
+def export_actions(file, scene, obj, bones):
 	old_action = obj.animation_data.action
+	old_time = scene.frame_current
 	for action in bpy.data.actions:
 		obj.animation_data.action = action
 		export_action(file, scene, obj, obj.data, bones, action)
 	obj.animation_data.action = old_action
+	scene.frame_set(old_time)
 
-def export_scene(file, scene):
-	bones = None
-	amtobj = None
-
+def find_armature(scene):
 	for obj in scene.objects:
 		if obj.type == 'ARMATURE':
-			amtobj = obj
+			return obj
+	return None
+
+def find_meshes(scene, amtobj):
+	return [x for x in scene.objects if x.type == 'MESH' and x.find_armature() == amtobj]
+
+def export_scene(file, scene):
+	amtobj = find_armature(scene)
+	meshobjs = find_meshes(scene, amtobj)
+	bones = None
 
 	if amtobj:
 		bones = export_armature(file, amtobj.data)
 
 	attributes = {}
-	for obj in scene.objects:
-		if obj.type == 'MESH' and obj.find_armature() == amtobj:
-			gather_attributes(attributes, obj.vertex_groups, bones)
+	for obj in meshobjs:
+		gather_attributes(attributes, obj.vertex_groups, bones)
 	attributes = export_attributes(file, attributes)
 
-	for obj in scene.objects:
-		if obj.type == 'MESH' and obj.find_armature() == amtobj:
-			export_mesh_object(file, scene, obj, bones, attributes)
+	for obj in meshobjs:
+		export_mesh_object(file, scene, obj, bones, attributes)
 
 	if amtobj:
-		export_armature_actions(file, scene, amtobj, bones)
+		export_actions(file, scene, amtobj, bones)
 
 def export_iqe(filename):
 	file = open(filename, "w")
