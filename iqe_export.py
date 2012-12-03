@@ -1,4 +1,4 @@
-# Inter-Quake Export
+# Export: Inter-Quake Export (IQE)
 #
 # TODO: generalize vertex array output logic
 # TODO: multiple vertex color layers
@@ -41,6 +41,7 @@ def export_attributes(file, attributes):
 		file.write("\n")
 	for name in attributes:
 		count = attributes[name]
+		print("exporting custom vertex attribute:", name)
 		file.write("vertexarray custom%d ubyte %d \"%s\"\n" % (len(list), count, name))
 		list.append((name, count))
 	return list
@@ -139,6 +140,23 @@ def export_mesh_data(file, mesh, mesh_name, vertex_groups, bones, attributes):
 			else:
 				file.write("fm %d %d %d %d\n" % (f[3], f[2], f[1], f[0]))
 
+def export_mesh_object(file, scene, obj, bones=None, attributes=None):
+	# temporarily disable armature modifiers
+	amtmods = []
+	for mod in obj.modifiers:
+		if mod.type == 'ARMATURE':
+			amtmods.append((mod, mod.show_viewport))
+			mod.show_viewport = False
+
+	mesh = obj.to_mesh(scene, True, 'PREVIEW')
+	mesh.calc_tessface()
+	export_mesh_data(file, mesh, obj.name, obj.vertex_groups, bones, attributes)
+	bpy.data.meshes.remove(mesh)
+
+	# restore armature modifiers
+	for mod, show_viewport in amtmods:
+		mod.show_viewport = show_viewport
+
 def write_pose(file, t, r, s):
 	if abs(s.x - 1.0) > 0.001 or abs(s.y - 1.0) > 0.001 or abs(s.z - 1.0) > 0.001:
 		file.write("pq %.9g %.9g %.9g %.9g %.9g %.9g %.9g %.9g %.9g %.9g\n" %
@@ -163,52 +181,36 @@ def export_armature(file, amt):
 
 	file.write("\n")
 	for bone in amt.bones:
-		matrix = bone.matrix_local
-		if bone.parent:
-			matrix = bone.parent.matrix_local.inverted() * bone.matrix_local
+		matrix = bone.parent.matrix_local.inverted() * bone.matrix_local if bone.parent else bone.matrix_local
 		t, r, s = matrix.decompose()
 		write_pose(file, t, r, s)
 
 	return bone_map
 
-def export_frame(file, amt, bones):
-	print("...")
+def export_frame(file, obj, amt, bones):
+	for bone in obj.pose.bones:
+		matrix = bone.parent.matrix.inverted() * bone.matrix if bone.parent else bone.matrix
+		t, r, s = matrix.decompose()
+		write_pose(file, t, r, s)
 
-def export_action(file, scene, obj, bones, amt, action):
-	print("exporting action:", action.name, action)
-	file.write("\n")
-	file.write("animation \"%s\"\n" % action.name)
+def export_action(file, scene, obj, amt, bones, action):
 	startframe = int(action.frame_range[0])
 	endframe = int(action.frame_range[1])
-	for time in range(startframe, endframe+1):
+	print("exporting action:", action.name, startframe, endframe)
+	file.write("\n")
+	file.write("animation \"%s\"\n" % action.name)
+	for time in range(startframe, endframe + 1):
 		scene.frame_set(time)
 		file.write("\n")
 		file.write("frame %d\n" % time)
-		export_frame(file, amt, bones)
+		export_frame(file, obj, amt, bones)
 
 def export_armature_actions(file, scene, obj, bones):
 	old_action = obj.animation_data.action
 	for action in bpy.data.actions:
 		obj.animation_data.action = action
-		export_action(file, scene, obj, bones, obj.data, action)
+		export_action(file, scene, obj, obj.data, bones, action)
 	obj.animation_data.action = old_action
-
-def export_mesh_object(file, scene, obj, bones=None, attributes=None):
-	# temporarily disable armature modifiers
-	amtmods = []
-	for mod in obj.modifiers:
-		if mod.type == 'ARMATURE':
-			amtmods.append((mod, mod.show_viewport))
-			mod.show_viewport = False
-
-	mesh = obj.to_mesh(scene, True, 'PREVIEW')
-	mesh.calc_tessface()
-	export_mesh_data(file, mesh, obj.name, obj.vertex_groups, bones, attributes)
-	bpy.data.meshes.remove(mesh)
-
-	# restore armature modifiers
-	for mod, show_viewport in amtmods:
-		mod.show_viewport = show_viewport
 
 def export_scene(file, scene):
 	bones = None
