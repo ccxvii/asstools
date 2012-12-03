@@ -61,11 +61,22 @@ def make_attribute(groups, vertex_groups, attribute):
 	return x, y, z, w
 
 def make_blend(groups, vertex_groups, bones):
-	vb = []
+	raw = []
+	total = 0.0
 	for g in groups:
-		n = vertex_groups[g.group].name
-		if n in bones:
-			vb += [ bones[n], g.weight ]
+		name = vertex_groups[g.group].name
+		if name in bones:
+			raw.append((g.weight, bones[name]))
+			total += g.weight
+	raw.sort()
+	raw.reverse()
+	vb = []
+	if total == 0.0:
+		total = 1.0
+	for w, i in raw:
+		if w > 0.0:
+			vb.append(i)
+			vb.append(w / total)
 	if len(vb) == 0:
 		print("warning: vertex with no bone weights")
 		return (0,1)
@@ -124,7 +135,7 @@ def export_mesh_data(file, mesh, obj, bones, attributes):
 
 		file.write("\n")
 		file.write("mesh \"%s\"\n" % obj.name)
-		file.write("material \"%s\"\n" % (mesh.materials[fm].name if mesh.materials[fm] else "none"))
+		file.write("material \"%s\"\n" % (fm < len(mesh.materials) and mesh.materials[fm].name))
 		for vp, vn, vt, vc, vb, v0, v1, v2, v3, v4, v5, v6, v7, v8, v9 in vertex_list:
 			file.write("vp %.9g %.9g %.9g\n" % vp)
 			file.write("vn %.9g %.9g %.9g\n" % vn)
@@ -182,7 +193,7 @@ def export_armature(file, obj, amt):
 	for bone in amt.bones:
 		if not bone in bone_map:
 			bone_map[bone.name] = count
-			count = count + 1
+			count += 1
 		parent = bone_map[bone.parent.name] if bone.parent else -1
 		file.write("joint \"%s\" %d\n" % (bone.name, parent))
 
