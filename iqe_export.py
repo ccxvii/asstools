@@ -66,10 +66,17 @@ def make_blend(groups, vertex_groups, bones):
 		n = vertex_groups[g.group].name
 		if n in bones:
 			vb += [ bones[n], g.weight ]
+	if len(vb) == 0:
+		print("warning: vertex with no bone weights")
+		return (0,1)
 	return tuple(vb)
 
-def export_mesh_data(file, mesh, mesh_name, vertex_groups, bones, attributes):
-	print("exporting mesh:", mesh_name)
+def export_mesh_data(file, mesh, obj, bones, attributes):
+	print("exporting mesh:", obj.name)
+
+	vgrp = obj.vertex_groups
+	coord_mat = obj.matrix_world
+	normal_mat = coord_mat.inverted().transposed()
 
 	texcoords = mesh.tessface_uv_textures.active
 	colors = mesh.tessface_vertex_colors.active
@@ -93,21 +100,21 @@ def export_mesh_data(file, mesh, mesh_name, vertex_groups, bones, attributes):
 			fc = fc and [fc.color1, fc.color2, fc.color3, fc.color4]
 			f = []
 			for i, v in enumerate(face.vertices):
-				vp = tuple(mesh.vertices[v].co)
-				vn = tuple(mesh.vertices[v].normal) if face.use_smooth else tuple(face.normal)
+				vp = tuple(coord_mat * mesh.vertices[v].co)
+				vn = tuple(normal_mat * (mesh.vertices[v].normal if face.use_smooth else face.normal))
 				vt = ft and tuple(ft[i])
 				vc = fc and tuple(fc[i])
-				vb = bones and make_blend(mesh.vertices[v].groups, vertex_groups, bones)
-				v0 = len(attributes) > 0 and make_attribute(mesh.vertices[v].groups, vertex_groups, attributes[0])
-				v1 = len(attributes) > 1 and make_attribute(mesh.vertices[v].groups, vertex_groups, attributes[1])
-				v2 = len(attributes) > 2 and make_attribute(mesh.vertices[v].groups, vertex_groups, attributes[2])
-				v3 = len(attributes) > 3 and make_attribute(mesh.vertices[v].groups, vertex_groups, attributes[3])
-				v4 = len(attributes) > 4 and make_attribute(mesh.vertices[v].groups, vertex_groups, attributes[4])
-				v5 = len(attributes) > 5 and make_attribute(mesh.vertices[v].groups, vertex_groups, attributes[5])
-				v6 = len(attributes) > 6 and make_attribute(mesh.vertices[v].groups, vertex_groups, attributes[6])
-				v7 = len(attributes) > 7 and make_attribute(mesh.vertices[v].groups, vertex_groups, attributes[7])
-				v8 = len(attributes) > 8 and make_attribute(mesh.vertices[v].groups, vertex_groups, attributes[8])
-				v9 = len(attributes) > 9 and make_attribute(mesh.vertices[v].groups, vertex_groups, attributes[9])
+				vb = bones and make_blend(mesh.vertices[v].groups, vgrp, bones)
+				v0 = len(attributes) > 0 and make_attribute(mesh.vertices[v].groups, vgrp, attributes[0])
+				v1 = len(attributes) > 1 and make_attribute(mesh.vertices[v].groups, vgrp, attributes[1])
+				v2 = len(attributes) > 2 and make_attribute(mesh.vertices[v].groups, vgrp, attributes[2])
+				v3 = len(attributes) > 3 and make_attribute(mesh.vertices[v].groups, vgrp, attributes[3])
+				v4 = len(attributes) > 4 and make_attribute(mesh.vertices[v].groups, vgrp, attributes[4])
+				v5 = len(attributes) > 5 and make_attribute(mesh.vertices[v].groups, vgrp, attributes[5])
+				v6 = len(attributes) > 6 and make_attribute(mesh.vertices[v].groups, vgrp, attributes[6])
+				v7 = len(attributes) > 7 and make_attribute(mesh.vertices[v].groups, vgrp, attributes[7])
+				v8 = len(attributes) > 8 and make_attribute(mesh.vertices[v].groups, vgrp, attributes[8])
+				v9 = len(attributes) > 9 and make_attribute(mesh.vertices[v].groups, vgrp, attributes[9])
 				v = vp, vn, vt, vc, vb, v0, v1, v2, v3, v4, v5, v6, v7, v8, v9
 				if v not in vertex_map:
 					vertex_map[v] = len(vertex_list)
@@ -116,8 +123,8 @@ def export_mesh_data(file, mesh, mesh_name, vertex_groups, bones, attributes):
 			face_list.append(f)
 
 		file.write("\n")
-		file.write("mesh \"%s\"\n" % mesh_name)
-		file.write("material \"%s\"\n" % mesh.materials[fm].name)
+		file.write("mesh \"%s\"\n" % obj.name)
+		file.write("material \"%s\"\n" % (mesh.materials[fm].name if mesh.materials[fm] else "none"))
 		for vp, vn, vt, vc, vb, v0, v1, v2, v3, v4, v5, v6, v7, v8, v9 in vertex_list:
 			file.write("vp %.9g %.9g %.9g\n" % vp)
 			file.write("vn %.9g %.9g %.9g\n" % vn)
@@ -150,7 +157,7 @@ def export_mesh_object(file, scene, obj, bones=None, attributes=None):
 
 	mesh = obj.to_mesh(scene, True, 'PREVIEW')
 	mesh.calc_tessface()
-	export_mesh_data(file, mesh, obj.name, obj.vertex_groups, bones, attributes)
+	export_mesh_data(file, mesh, obj, bones, attributes)
 	bpy.data.meshes.remove(mesh)
 
 	# restore armature modifiers
@@ -165,31 +172,38 @@ def write_pose(file, t, r, s):
 		file.write("pq %.9g %.9g %.9g %.9g %.9g %.9g %.9g\n" %
 			(t.x, t.y, t.z, r.x, r.y, r.z, r.w))
 
-def export_armature(file, amt):
+def export_armature(file, obj, amt):
 	print("exporting armature:", amt.name)
 
 	bone_map = {}
-	bone_list = []
+	count = 0
 
 	file.write("\n")
 	for bone in amt.bones:
 		if not bone in bone_map:
-			bone_map[bone.name] = len(bone_list)
-			bone_list.append(bone)
+			bone_map[bone.name] = count
+			count = count + 1
 		parent = bone_map[bone.parent.name] if bone.parent else -1
 		file.write("joint \"%s\" %d\n" % (bone.name, parent))
 
 	file.write("\n")
 	for bone in amt.bones:
-		matrix = bone.parent.matrix_local.inverted() * bone.matrix_local if bone.parent else bone.matrix_local
+		if bone.parent:
+			matrix = bone.parent.matrix_local.inverted() * bone.matrix_local
+		else:
+			matrix = obj.matrix_world * bone.matrix_local
 		t, r, s = matrix.decompose()
 		write_pose(file, t, r, s)
 
 	return bone_map
 
 def export_frame(file, obj, amt, bones):
-	for bone in obj.pose.bones:
-		matrix = bone.parent.matrix.inverted() * bone.matrix if bone.parent else bone.matrix
+	for amt_bone in amt.bones:
+		bone = obj.pose.bones[amt_bone.name]
+		if bone.parent:
+			matrix = bone.parent.matrix.inverted() * bone.matrix
+		else:
+			matrix = obj.matrix_world * bone.matrix
 		t, r, s = matrix.decompose()
 		write_pose(file, t, r, s)
 
@@ -229,7 +243,7 @@ def export_scene(file, scene):
 	bones = None
 
 	if amtobj:
-		bones = export_armature(file, amtobj.data)
+		bones = export_armature(file, amtobj, amtobj.data)
 
 	attributes = {}
 	for obj in meshobjs:

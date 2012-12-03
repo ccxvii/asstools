@@ -53,7 +53,7 @@ def mat3_to_vec_roll(mat):
 class IQMesh:
 	def __init__(self, name):
 		self.name = name
-		self.material = None
+		self.material = ["unknown"]
 		self.faces = []
 		self.vp = []
 		self.vn = []
@@ -501,6 +501,7 @@ def make_pose(iqmodel, frame, amtobj, bone_axis, tick):
 def make_anim(iqmodel, anim, amtobj, bone_axis):
 	print("importing animation %s with %d frames" % (anim.name, len(anim.frames)))
 	action = bpy.data.actions.new(anim.name)
+	action.id_root = 'OBJECT'
 	action.use_fake_user = True
 	amtobj.animation_data.action = action
 	for n in range(len(anim.frames)):
@@ -758,7 +759,7 @@ def make_mesh_data(iqmodel, name, meshes, amtobj, dir):
 	# Vertex groups for custom attributes
 
 	def make_custom_vgroup(obj, name, size, vdata):
-		print("make custom vertex group", name, size)
+		print("importing custom attribute as vertex group", name)
 		if size == 1:
 			xg = obj.vertex_groups.new(name)
 			for i, v in enumerate(vdata):
