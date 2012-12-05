@@ -231,12 +231,12 @@ def export_action(file, scene, obj, amt, bones, action):
 		export_frame(file, obj, amt, bones)
 
 def export_actions(file, scene, obj, bones):
-	old_action = obj.animation_data.action
+	if obj.animation_data: old_action = obj.animation_data.action
 	old_time = scene.frame_current
 	for action in bpy.data.actions:
 		obj.animation_data.action = action
 		export_action(file, scene, obj, obj.data, bones, action)
-	obj.animation_data.action = old_action
+	if obj.animation_data: obj.animation_data.action = old_action
 	scene.frame_set(old_time)
 
 def find_armature(scene):
