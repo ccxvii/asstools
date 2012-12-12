@@ -480,7 +480,7 @@ int build_bone_list(const struct aiScene *scene)
 	if (dohips) fix_hips(0);
 
 	// we always need the bind pose
-	if (domesh || dorigid)
+	if (doanim || domesh || dorigid)
 		mark_skinned_bones(scene);
 
 	if (doanim || save_all_bones)
@@ -591,8 +591,8 @@ struct {
 } hiplist[] = {
 	{ "bip01_l_thigh", "bip01_pelvis", -1 },
 	{ "bip01_r_thigh", "bip01_pelvis", -1 },
-	{ "bip01_l_foot", "bip01_l_calf", -1 },
-	{ "bip01_r_foot", "bip01_r_calf", -1 },
+//	{ "bip01_l_foot", "bip01_l_calf", -1 },
+//	{ "bip01_r_foot", "bip01_r_calf", -1 },
 	{ NULL, NULL, 0 }
 };
 
