@@ -973,17 +973,17 @@ void export_node(FILE *out, const struct aiScene *scene, const struct aiNode *no
 			if (!dobone)
 				aiTransformVecByMatrix4(&vp, &mat);
 			fprintf(out, "vp %.9g %.9g %.9g\n", vp.x, vp.y, vp.z);
-			if (mesh->mTextureCoords[0]) {
-				float u = mesh->mTextureCoords[0][k].x;
-				float v = 1 - mesh->mTextureCoords[0][k].y;
-				fprintf(out, "vt %.9g %.9g\n", u, v);
-			} else fprintf(out, "vt 0 0\n");
 			if (mesh->mNormals) {
 				struct aiVector3D vn = mesh->mNormals[k];
 				if (!dobone)
 					aiTransformVecByMatrix3(&vn, &mat3);
 				fprintf(out, "vn %.9g %.9g %.9g\n", vn.x, vn.y, vn.z);
 			}
+			if (mesh->mTextureCoords[0]) {
+				float u = mesh->mTextureCoords[0][k].x;
+				float v = 1 - mesh->mTextureCoords[0][k].y;
+				fprintf(out, "vt %.9g %.9g\n", u, v);
+			} else fprintf(out, "vt 0 0\n");
 			if (mesh->mColors[0]) {
 				float r = mesh->mColors[0][k].r; r = floorf(r * 255) / 255;
 				float g = mesh->mColors[0][k].g; g = floorf(g * 255) / 255;
@@ -1002,11 +1002,31 @@ void export_node(FILE *out, const struct aiScene *scene, const struct aiNode *no
 
 		for (k = 0; k < mesh->mNumFaces; k++) {
 			struct aiFace *face = mesh->mFaces + k;
-			assert(face->mNumIndices == 3);
-			if (doflip)
-				fprintf(out, "fm %d %d %d\n", face->mIndices[0], face->mIndices[2], face->mIndices[1]);
-			else
-				fprintf(out, "fm %d %d %d\n", face->mIndices[0], face->mIndices[1], face->mIndices[2]);
+			if (face->mNumIndices == 3) {
+				if (doflip)
+					fprintf(out, "fm %d %d %d\n", face->mIndices[2], face->mIndices[1], face->mIndices[0]);
+				else
+					fprintf(out, "fm %d %d %d\n", face->mIndices[0], face->mIndices[1], face->mIndices[2]);
+			} else if (face->mNumIndices == 4) {
+				if (doflip)
+					fprintf(out, "fm %d %d %d %d\n", face->mIndices[3], face->mIndices[2], face->mIndices[1], face->mIndices[0]);
+				else
+					fprintf(out, "fm %d %d %d %d\n", face->mIndices[0], face->mIndices[1], face->mIndices[2], face->mIndices[3]);
+			} else if (face->mNumIndices > 4) {
+				fprintf(stderr, "n-gon (%d) in mesh!\n", face->mNumIndices);
+				int i1 = face->mIndices[0];
+				int i2 = face->mIndices[1];
+				for (a = 2; a < face->mNumIndices; a++) {
+					int i3 = face->mIndices[a];
+					if (doflip)
+						fprintf(out, "fm %d %d %d\n", i3, i2, i1);
+					else
+						fprintf(out, "fm %d %d %d\n", i1, i2, i3);
+					i2 = i3;
+				}
+			} else {
+				fprintf(stderr, "skipping point/line primitive\n");
+			}
 		}
 
 		free(vb);
@@ -1107,7 +1127,7 @@ int main(int argc, char **argv)
 
 	/* Read input file and post process */
 
-	int flags = aiProcess_Triangulate;
+	int flags = 0;
 	flags |= aiProcess_JoinIdenticalVertices;
 	flags |= aiProcess_GenSmoothNormals;
 	flags |= aiProcess_GenUVCoords;
