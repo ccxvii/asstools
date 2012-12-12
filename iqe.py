@@ -27,12 +27,12 @@ class Mesh:
 		for i in xrange(len(self.positions)):
 			xyz = self.positions[i]
 			print >>file, "vp %.9g %.9g %.9g" % xyz
-			if len(self.texcoords) == len(self.positions):
-				xy = self.texcoords[i]
-				print >>file, "vt %.9g %.9g" % xy
 			if len(self.normals) == len(self.positions):
 				xyz = self.normals[i]
 				print >>file, "vn %.9g %.9g %.9g" % xyz
+			if len(self.texcoords) == len(self.positions):
+				xy = self.texcoords[i]
+				print >>file, "vt %.9g %.9g" % xy
 			if len(self.colors) == len(self.positions):
 				xyzw = self.colors[i]
 				print >>file, "vc %.9g %.9g %.9g %.9g" % xyzw
@@ -42,7 +42,10 @@ class Mesh:
 					blend = reduce(lambda x,y: x+y, blend) # flatten pairs
 				print >>file, "vb", " ".join(["%.9g" % x for x in blend])
 		for face in self.faces:
-			print >>file, "fm %d %d %d" % (face[0], face[1], face[2])
+			if len(face) == 3:
+				print >>file, "fm %d %d %d" % (face[0], face[1], face[2])
+			else:
+				print >>file, "fm %d %d %d %d" % (face[0], face[1], face[2], face[3])
 
 class Animation:
 	def __init__(self, name):
@@ -122,7 +125,7 @@ def load_model(file):
 		elif line[0] == "vb":
 			mesh.blends.append(blend_pairs([float(x) for x in line[1:]]))
 		elif line[0] == "fm":
-			mesh.faces.append(tuple([int(x) for x in line[1:4]]))
+			mesh.faces.append(tuple([int(x) for x in line[1:]]))
 		elif line[0] == "animation":
 			anim = Animation(line[1])
 			model.anims.append(anim)
@@ -156,13 +159,17 @@ def save_as_obj(model, filename):
 		for i in range(len(mesh.positions)):
 			x,y,z = mesh.positions[i]
 			print >>file, "v %.9g %.9g %.9g" % (x,z,-y)
-			x,y = mesh.texcoords[i]
-			print >>file, "vt %.9g %.9g" % (x,1-y)
 			x,y,z = mesh.normals[i]
 			print >>file, "vn %.9g %.9g %.9g" % (x,z,-y)
+			x,y = mesh.texcoords[i]
+			print >>file, "vt %.9g %.9g" % (x,1-y)
 		for face in mesh.faces:
-			a,b,c = face[0]+ofs, face[1]+ofs, face[2]+ofs
-			print >>file, "f %d/%d/%d %d/%d/%d %d/%d/%d" % (a,a,a, c,c,c, b,b,b)
+			if len(face) == 3:
+				a,b,c = face[0]+ofs, face[1]+ofs, face[2]+ofs
+				print >>file, "f %d/%d/%d %d/%d/%d %d/%d/%d" % (c,c,c, b,b,b, a,a,a)
+			else:
+				a,b,c,d = face[0]+ofs, face[1]+ofs, face[2]+ofs, face[3]+ofs
+				print >>file, "f %d/%d/%d %d/%d/%d %d/%d/%d %d/%d/%d" % (d,d,d, c,c,c, b,b,b, a,a,a)
 		ofs += len(mesh.positions)
 
 # Annotate materials with flags from data in .material files.
@@ -257,8 +264,13 @@ def backface_mesh(mesh):
 	for x,y,z in mesh.normals:
 		mirror.normals.append((-x,-y,-z))
 	mirror.faces = []
-	for a,b,c in mesh.faces:
-		mirror.faces.append((c,b,a))
+	for face in mesh.faces:
+		if len(face) == 3:
+			a, b, c = face
+			mirror.faces.append((c,b,a))
+		else:
+			a, b, c, d = face
+			mirror.faces.append((d,c,b,a))
 	return mirror
 
 def backface_model(model):
@@ -352,8 +364,13 @@ def append_mesh(output, mesh):
 	output.normals += mesh.normals
 	output.colors += mesh.colors
 	output.blends += mesh.blends
-	for a,b,c in mesh.faces:
-		output.faces.append((a+offset, b+offset, c+offset))
+	for face in mesh.faces:
+		if len(face) == 3:
+			a, b, c = face
+			output.faces.append((a+offset, b+offset, c+offset))
+		else:
+			a, b, c, d = face
+			output.faces.append((a+offset, b+offset, c+offset, d+offset))
 
 def merge_meshes(model):
 	map = {}
@@ -512,6 +529,14 @@ def kill_channels(model, kill_loc, kill_rot, kill_scl):
 				if kill_scl(name): p = p[0:3] + p[3:7] + a[7:10]
 				frame[i] = p
 				#if frame == anim.frames[0]: print >>sys.stderr, kill_loc(name), kill_rot(name), kill_scl(name), name
+
+# Force scaling to 1 (and warn)
+
+def kill_anim_scaling(model):
+	for anim in model.anims:
+		for frame in anim.frames:
+			for i in range(len(frame)):
+				frame[i] = frame[i][0:7]
 
 if __name__ == "__main__":
 	for filename in sys.argv[1:]:
