@@ -23,14 +23,17 @@ GL_LIBS += -L../freeglut/lib -lfreeglut_static -lopengl32 -lwinmm -lgdi32
 #GL_LIBS += -mwindows
 endif
 
-assview: assview.c
-	$(CC) -o $@ $(CFLAGS) $(AI_CFLAGS) $(GL_CFLAGS) $< $(AI_LIBS) $(GL_LIBS)
+assiqe: assiqe.c
+	$(CC) -o $@ $(CFLAGS) $(AI_CFLAGS) $< $(AI_LIBS)
 
 iqeview: iqeview.c
 	$(CC) -o $@ $(CFLAGS) $(GL_CFLAGS) $< $(GL_LIBS)
 
+assview: assview.c
+	$(CC) -o $@ $(CFLAGS) $(AI_CFLAGS) $(GL_CFLAGS) $< $(AI_LIBS) $(GL_LIBS)
+
 %: %.c
-	$(CC) -o $@ $(CFLAGS) $(AI_CFLAGS) $< $(AI_LIBS)
+	$(CC) -o $@ $(CFLAGS) $< -lm
 
 clean:
 	rm -f *.o *.exe assiqe assview

@@ -286,6 +286,20 @@ def backface_model(model):
 def scale_model(model, s):
 	for mesh in model.meshes:
 		mesh.positions = [(x*s,y*s,z*s) for x,y,z in mesh.positions]
+	for i in range(len(model.bindpose)):
+		pose = list(model.bindpose[i])
+		pose[0] *= s
+		pose[1] *= s
+		pose[2] *= s
+		model.bindpose[i] = tuple(pose)
+	for anim in model.anims:
+		for frame in anim.frames:
+			for i in range(len(frame)):
+				pose = list(frame[i])
+				pose[0] *= s
+				pose[1] *= s
+				pose[2] *= s
+				frame[i] = tuple(pose)
 
 # Translate model coords
 
@@ -321,6 +335,15 @@ def model_x_to_y(model):
 	for mesh in model.meshes:
 		mesh.positions = [x_to_y(v) for v in mesh.positions]
 		mesh.normals = [x_to_y(v) for v in mesh.normals]
+
+def y_to_z(v):
+	x, y, z = v
+	return x, -z, y
+
+def model_y_to_z(model):
+	for mesh in model.meshes:
+		mesh.positions = [y_to_z(v) for v in mesh.positions]
+		mesh.normals = [y_to_z(v) for v in mesh.normals]
 
 # Fix UV coords that have a clip region set. Ugh.
 # We can offset the origin, but then the repeat/wrapping fails.
@@ -531,6 +554,10 @@ def kill_channels(model, kill_loc, kill_rot, kill_scl):
 				#if frame == anim.frames[0]: print >>sys.stderr, kill_loc(name), kill_rot(name), kill_scl(name), name
 
 # Force scaling to 1 (and warn)
+
+def kill_bind_scaling(model):
+	for i in range(len(model.bindpose)):
+		model.bindpose[i] = model.bindpose[i][0:7]
 
 def kill_anim_scaling(model):
 	for anim in model.anims:
