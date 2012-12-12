@@ -165,7 +165,15 @@ def load_iqe(filename):
 			curmesh.vbi.append(tuple(vbi))
 			curmesh.vbw.append(tuple(vbw))
 		elif line[0] == "fm":
-			curmesh.faces.append(tuple([int(x) for x in line[1:]]))
+			f = [int(x) for x in line[1:]]
+			if len(f) > 4:
+				print("triangulating n-gon with %d sides %s" % (len(f), f))
+				i = 1
+				for j in range(2,len(f)):
+					curmesh.faces.append((f[0], f[i], f[j]))
+					i = j
+			else:
+				curmesh.faces.append(tuple(f))
 		elif line[0] == "fa": raise Exception("fa style faces not implemented yet")
 		elif line[0] == "animation":
 			curanim = IQAnimation(line[1])
