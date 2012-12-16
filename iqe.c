@@ -431,9 +431,10 @@ static void add_color(float r, float g, float b, float a)
 static void add_blend(int idx[4], float wgt[4])
 {
 	int i;
+	float total = wgt[0] + wgt[1] + wgt[2] + wgt[3];
 	for (i = 0; i < 4; i++) {
 		push_int(&blendindex, idx[i]);
-		push_float(&blendweight, wgt[i]);
+		push_float(&blendweight, wgt[i] / total);
 	}
 }
 
@@ -576,13 +577,21 @@ load_iqe_model_from_memory(char *filename, unsigned char *data, int len)
 		} else if (!strcmp(s, "fm")) {
 			int x = parseint(&sp, 0);
 			int y = parseint(&sp, 0);
-			int z = parseint(&sp, 0);
-			add_triangle(x+fm, y+fm, z+fm);
+			int z = parseint(&sp, -1);
+			while (z > -1) {
+				add_triangle(x+fm, y+fm, z+fm);
+				y = z;
+				z = parseint(&sp, -1);
+			}
 		} else if (!strcmp(s, "fa")) {
 			int x = parseint(&sp, 0);
 			int y = parseint(&sp, 0);
-			int z = parseint(&sp, 0);
-			add_triangle(x, y, z);
+			int z = parseint(&sp, -1);
+			while (z > -1) {
+				add_triangle(x, y, z);
+				y = z;
+				z = parseint(&sp, -1);
+			}
 		} else if (!strcmp(s, "mesh")) {
 			s = parsestring(&sp);
 			if (mesh) {
