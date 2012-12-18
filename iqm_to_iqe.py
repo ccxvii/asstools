@@ -169,9 +169,10 @@ def load_tris(file, num_triangles, ofs_triangles, ofs_adjacency):
 def dump_verts(vafmt, verts, first, count):
 	for x in range(first, first+count):
 		if verts[0]: print("vp", fmtv(verts[0][x]))
-		if verts[1]: print("vt", fmtv(verts[1][x]))
 		if verts[2]: print("vn", fmtv(verts[2][x]))
 		if verts[3]: print("vx", fmtv(verts[3][x]))
+		if verts[1]: print("vt", fmtv(verts[1][x]))
+		if verts[6]: print("vc", fmtb(verts[6][x]))
 		if verts[4] and verts[5]:
 			out = "vb"
 			for y in range(4):
@@ -179,8 +180,6 @@ def dump_verts(vafmt, verts, first, count):
 					out += " %d" % verts[4][x][y]
 					out += " %.9g" % (verts[5][x][y]/255.0)
 			print(out)
-		if verts[6]:
-			print("vc", fmtb(verts[6][x]))
 		for i in range(16, 16+10):
 			if verts[i] and vafmt[i] == 1: print("v%d" % (i-16), fmtb(verts[i][x]))
 			if verts[i] and vafmt[i] == 7: print("v%d" % (i-16), fmtv(verts[i][x]))
