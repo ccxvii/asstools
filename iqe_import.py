@@ -11,7 +11,7 @@ bl_info = {
 	"category": "Import-Export",
 }
 
-import bpy, math, shlex, struct, os, sys
+import bpy, math, shlex, struct, os, sys, glob
 
 from bpy.props import *
 from bpy_extras.io_utils import ImportHelper, unpack_list, unpack_face_list
@@ -741,11 +741,13 @@ def make_mesh_data(iqmodel, name, meshes, amtobj, dir):
 			uvlayer.data[i].uv1 = new_ft[i][0]
 			uvlayer.data[i].uv2 = new_ft[i][1]
 			uvlayer.data[i].uv3 = new_ft[i][2]
+			uvlayer.data[i].uv4 = new_ft[i][3] if len(new_ft[i]) == 4 else (0,0)
 			uvlayer.data[i].image = new_fm_i[i]
 		if clayer:
 			clayer.data[i].color1 = new_fc[0]
 			clayer.data[i].color2 = new_fc[1]
 			clayer.data[i].color3 = new_fc[2]
+			clayer.data[i].color4 = new_fc[3] if len(new_fc[i]) == 4 else (1,1,1)
 
 	# Vertex groups and armature modifier for skinning
 
@@ -913,6 +915,9 @@ def batch_many(input_list):
 if __name__ == "__main__":
 	register()
 	if len(sys.argv) > 4 and sys.argv[-2] == '--':
-		batch(sys.argv[-1])
+		if "*" in sys.argv[-1]:
+			batch_many(glob.glob(sys.argv[-1]))
+		else:
+			batch(sys.argv[-1])
 	elif len(sys.argv) > 4 and sys.argv[4] == '--':
 		batch_many(sys.argv[5:])
