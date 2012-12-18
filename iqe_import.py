@@ -607,6 +607,15 @@ def reorder(f, ft, fc):
 			fc = fc[2], fc[3], fc[0], fc[1]
 	return f, ft, fc
 
+def isdegenerate(f):
+	if len(f) == 3:
+		a, b, c = f
+		return a == b or a == c or b == c
+	if len(f) == 4:
+		a, b, c, d = f
+		return a == b or a == c or a == d or b == c or b == d
+	return True
+
 def make_mesh_data(iqmodel, name, meshes, amtobj, dir):
 	print("importing mesh", name, "with", len(meshes), "parts")
 
@@ -713,6 +722,9 @@ def make_mesh_data(iqmodel, name, meshes, amtobj, dir):
 				ft.append(iqmesh.vt[iqvert] if has_vt else None)
 				fc.append(iqmesh.vc[iqvert] if has_vc else None)
 			f, ft, fc = reorder(f, ft, fc)
+			if isdegenerate(f):
+				print("degenerate face", iqface, f)
+				continue
 			new_f.append(f)
 			new_ft.append(ft)
 			new_fc.append(fc)
