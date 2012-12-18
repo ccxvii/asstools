@@ -1,7 +1,7 @@
 OS := $(shell uname)
 OS := $(OS:MINGW%=MINGW)
 
-default: assiqe assview iqeview
+default: assiqe assview iqeview iqe-merge-root iqe-apply-pose
 
 CFLAGS = -Wall -g
 
@@ -32,8 +32,8 @@ iqeview: iqeview.c
 assview: assview.c
 	$(CC) -o $@ $(CFLAGS) $(AI_CFLAGS) $(GL_CFLAGS) $< $(AI_LIBS) $(GL_LIBS)
 
-%: %.c
+%: %.c iqe.c
 	$(CC) -o $@ $(CFLAGS) $< -lm
 
 clean:
-	rm -f *.o *.exe assiqe assview
+	rm -f *.o *.exe assiqe assview iqe-merge-root iqe-apply-pose
