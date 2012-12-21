@@ -1,7 +1,7 @@
 # Inter-Quake Import
 #
-# Simple version that only imports positions, normals and texture coords.
-# Armatures, vertex colors, custom attributes are all ignored.
+# Simple version that only imports positions, normals, texture coords and vertex colors.
+# Armatures, blend weights, and custom attributes are all ignored.
 #
 
 bl_info = {
@@ -21,26 +21,28 @@ from bpy.props import *
 from bpy_extras.io_utils import ImportHelper, unpack_list, unpack_face_list
 from bpy_extras.image_utils import load_image
 
-def reorder(f, ft):
+def reorder(f, ft, fc):
 	# see bpy_extras.io_utils.unpack_face_list()
 	if len(f) == 3:
 		if f[2] == 0:
 			f = f[1], f[2], f[0]
 			ft = ft[1], ft[2], ft[0]
+			fc = fc[1], fc[2], fc[0]
 	else: # assume quad
 		if f[3] == 0 or f[2] == 0:
 			f = f[2], f[3], f[0], f[1]
 			ft = ft[2], ft[3], ft[0], ft[1]
-	return f, ft
+			fc = fc[2], fc[3], fc[0], fc[1]
+	return f, ft, fc
 
-def import_material(matname, dirname):
+def import_material(matname):
 	texname = matname.split("+")[-1]
 	imgname = texname + ".png"
 
 	if imgname in bpy.data.images:
 		img = bpy.data.images[imgname]
 	else:
-		img = load_image("textures/" + imgname, dirname, place_holder=True)
+		img = load_image("textures/" + imgname, place_holder=True)
 
 	if texname in bpy.data.textures:
 		tex = bpy.data.textures[texname]
@@ -57,13 +59,14 @@ def import_material(matname, dirname):
 		mat.diffuse_intensity = 1.0
 		mat.specular_intensity = 0.0
 		mat.use_transparency = True
-		mat.alpha = 0.0
+		mat.use_object_color = True
 		slot = mat.texture_slots.create(0)
 		slot.texture = tex
 		slot.texture_coords = 'UV'
 		slot.uv_layer = "UVMap"
 		slot.use_map_color_diffuse = True
 		slot.use_map_alpha = True
+		slot.blend_type = 'MULTIPLY'
 
 	return mat, img
 
@@ -85,6 +88,8 @@ def import_mesh(filename):
 	if not line.startswith("# Inter-Quake Export"):
 		raise Exception("Not an IQE file!")
 
+	has_vc = has_vt = False
+
 	faces = []
 	mat, img = None, None
 	for line in file.readlines():
@@ -93,33 +98,39 @@ def import_mesh(filename):
 		else:
 			line = line.split()
 		if len(line) == 0: pass
-		elif line[0] == "mesh": in_vp, in_vn, in_vt = [], [], []
-		elif line[0] == "material": mat, img = import_material(line[1], os.path.dirname(filename))
+		elif line[0] == "mesh": in_vp, in_vn, in_vt, in_vc = [], [], [], []
+		elif line[0] == "material": mat, img = import_material(line[1])
 		elif line[0] == "vp": in_vp.append((float(line[1]), float(line[2]), float(line[3])))
 		elif line[0] == "vn": in_vn.append((float(line[1]), float(line[2]), float(line[3])))
-		elif line[0] == "vt": in_vt.append((float(line[1]), 1.0 - float(line[2])))
+		elif line[0] == "vt": has_vt = True; in_vt.append((float(line[1]), 1.0 - float(line[2])))
+		elif line[0] == "vc": has_vc = True; in_vc.append((float(line[1]), float(line[2]), float(line[3])))
 		elif line[0] == "fm":
 			verts = []
 			for f in [int(x) for x in line[1:]]:
-				verts.insert(0, (in_vp[f], in_vn[f], in_vt[f]))
+				p, n = in_vp[f], in_vn[f]
+				t = in_vt[f] if f < len(in_vt) else (0,0)
+				c = in_vc[f] if f < len(in_vc) else (1,1,1)
+				verts.insert(0, (p, n, t, c))
 			faces.append((verts, mat, img))
 
 	vertex_map = {}
-	out_vp, out_f, out_ft, out_fm = [], [], [], []
+	out_vp, out_f, out_ft, out_fc, out_fm = [], [], [], [], []
 	for verts, mat, img in faces:
-		f, ft = [], []
-		for p, n, t in verts:
+		f, ft, fc = [], [], []
+		for p, n, t, c in verts:
 			if not (p,n) in vertex_map:
 				vertex_map[(p,n)] = len(out_vp)
 				out_vp.append(p)
 			f.append(vertex_map[p,n])
 			ft.append(t)
-		f, ft = reorder(f, ft)
+			fc.append(c)
+		f, ft, fc = reorder(f, ft, fc)
 		if isdegenerate(f):
 			print("degenerate face", f)
 			continue
 		out_f.append(f)
 		out_ft.append(ft)
+		out_fc.append(fc)
 		out_fm.append((mat, img))
 
 	mesh = bpy.data.meshes.new(name)
@@ -134,18 +145,28 @@ def import_mesh(filename):
 	mesh.tessfaces.add(len(out_f))
 	mesh.tessfaces.foreach_set("vertices_raw", unpack_face_list(out_f))
 
-	uvlayer = mesh.tessface_uv_textures.new()
+	if has_vt: uvlayer = mesh.tessface_uv_textures.new()
+	if has_vc: vclayer = mesh.tessface_vertex_colors.new()
 	for i, face in enumerate(mesh.tessfaces):
 		mat, img = out_fm[i]
 		if mat.name not in mesh.materials:
 			mesh.materials.append(mat)
 		face.material_index = mesh.materials.find(mat.name)
 		face.use_smooth = True
-		uvlayer.data[i].image = img
-		uvlayer.data[i].uv1 = out_ft[i][0]
-		uvlayer.data[i].uv2 = out_ft[i][1]
-		uvlayer.data[i].uv3 = out_ft[i][2]
-		uvlayer.data[i].uv4 = out_ft[i][3] if len(out_ft[i]) == 4 else (0,0)
+		if has_vt:
+			uvlayer.data[i].image = img
+			uvlayer.data[i].uv1 = out_ft[i][0]
+			uvlayer.data[i].uv2 = out_ft[i][1]
+			uvlayer.data[i].uv3 = out_ft[i][2]
+			uvlayer.data[i].uv4 = out_ft[i][3] if len(out_ft[i]) == 4 else (0,0)
+		if has_vc:
+			vclayer.data[i].color1 = out_fc[i][0]
+			vclayer.data[i].color2 = out_fc[i][1]
+			vclayer.data[i].color3 = out_fc[i][2]
+			vclayer.data[i].color4 = out_fc[i][3] if len(out_fc[i]) == 4 else (1,1,1)
+
+	for mat in mesh.materials:
+		mat.use_vertex_color_paint = has_vc
 
 	mesh.update()
 
