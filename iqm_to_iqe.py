@@ -10,18 +10,9 @@ iqm_va_type = {
 	4: "blendindexes",
 	5: "blendweights",
 	6: "color",
-	8: "reserved", 9: "reserved", 10: "reserved", 11: "reserved",
-	12: "reserved", 13: "reserved", 14: "reserved", 15: "reserved",
-	16: "custom0",
-	17: "custom1",
-	18: "custom2",
-	19: "custom3",
-	20: "custom4",
-	21: "custom5",
-	22: "custom6",
-	23: "custom7",
-	24: "custom8",
-	25: "custom9",
+	7: "reserved7",
+	8: "reserved8", 9: "reserved9", 10: "reserved10", 11: "reserved11",
+	12: "reserved12", 13: "reserved13", 14: "reserved14", 15: "reserved15",
 }
 
 iqm_va_format = {
@@ -53,23 +44,26 @@ def fmtv(v): return " ".join(["%.9g" % x for x in v])
 def fmtb(v): return " ".join(["%.9g" % (x/255.0) for x in v])
 def fmtp(v): return " ".join(["%.9g" % x for x in v])
 
-def dump_joints(file, text, num_joints, ofs_joints):
+def quote(s):
+	return "\"%s\"" % s
+
+def dump_joints(out, file, text, num_joints, ofs_joints):
 	file.seek(ofs_joints)
 	jointlist = []
 	for x in range(num_joints):
 		joint = struct.unpack("<Ii10f", file.read(12*4))
 		jointlist += (joint,)
-	print()
+	out.write("\n")
 	for joint in jointlist:
 		name = cstr(text, joint[0])
 		parent = joint[1]
-		print("joint", name, parent)
-	print()
+		out.write("joint %s %s\n" % (quote(name), parent))
+	out.write("\n")
 	for joint in jointlist:
 		pos = joint[2:5]
 		rot = joint[5:9]
 		scale = joint[9:12]
-		print("pq", fmtp(pos + rot + optscale(scale)))
+		out.write("pq %s\n" % fmtp(pos + rot + optscale(scale)))
 
 def load_poses(file, num_poses, ofs_poses):
 	file.seek(ofs_poses)
@@ -88,7 +82,7 @@ def load_frames(file, num_frames, num_framechannels, ofs_frames):
 		framelist.append(frame)
 	return framelist
 
-def dump_frame(poselist, frame):
+def dump_frame(out, poselist, frame):
 	masktest = [0x01, 0x02, 0x04, 0x08, 0x10, 0x20, 0x40, 0x80, 0x100, 0x200]
 	p = 0
 	for pose in poselist:
@@ -103,27 +97,26 @@ def dump_frame(poselist, frame):
 			pos = data[0:3]
 			rot = [x for x in data[3:7]]
 			scale = [x for x in optscale(data[7:10])]
-		print("pq", fmtp(pos + rot + scale))
+		out.write("pq %s\n" % fmtp(pos + rot + scale))
 
-def dump_anims(file, text, num_anims, ofs_anims, poses, frames):
+def dump_anims(out, file, text, num_anims, ofs_anims, poses, frames):
 	file.seek(ofs_anims)
 	for x in range(num_anims):
 		anim = struct.unpack("<3IfI", file.read(5*4))
 		name = cstr(text, anim[0])
 		first = anim[1]
 		count = anim[2]
-		print()
-		print("animation", name)
-		print("framerate %g" % anim[3])
-		if anim[4]: print("loop")
+		out.write("\n")
+		out.write("animation %s\n" % quote(name))
+		out.write("framerate %g\n" % anim[3])
+		if anim[4]: out.write("loop\n")
 		for y in range(first, first+count):
-			print()
-			print("frame")
-			dump_frame(poses, frames[y])
+			out.write("\nframe %d\n" % y - first)
+			dump_frame(out, poses, frames[y])
 
 def load_array(file, format, size, offset, count):
 	if format != 1 and format != 7:
-		print("can only handle ubyte and float arrays", file=sys.stderr)
+		sys.stdout.write("can only handle ubyte and float arrays\n")
 		sys.exit(1)
 	if format == 1: A="<"+"B"*size; S=1*size
 	if format == 7: A="<"+"f"*size; S=4*size
@@ -134,9 +127,9 @@ def load_array(file, format, size, offset, count):
 		list.append(comp)
 	return list
 
-def load_verts(file, text, num_vertexarrays, num_vertexes, ofs_vertexarrays):
+def load_verts(out, file, text, num_vertexarrays, num_vertexes, ofs_vertexarrays):
 	file.seek(ofs_vertexarrays)
-	print()
+	out.write("\n")
 	custom = 16
 	valist = []
 	for x in range(num_vertexarrays):
@@ -154,8 +147,8 @@ def load_verts(file, text, num_vertexarrays, num_vertexes, ofs_vertexarrays):
 		vafmt[type] = format
 		verts[type] = load_array(file, format, size, offset, num_vertexes)
 		if type != 4 and format == 7: verts[type]
-		if type >= 16: print("vertexarray", iqm_va_type[type], iqm_va_format[format], size, type_name)
-		else: print("vertexarray", iqm_va_type[type], iqm_va_format[format], size)
+		if type >= 16: out.write("vertexarray %s %s %d %s\n" % (iqm_va_type[type], iqm_va_format[format], size, quote(type_name)))
+		else: out.write("vertexarray %s %s %d\n" % (iqm_va_type[type], iqm_va_format[format], size))
 	return vafmt, verts
 
 def load_tris(file, num_triangles, ofs_triangles, ofs_adjacency):
@@ -166,43 +159,43 @@ def load_tris(file, num_triangles, ofs_triangles, ofs_adjacency):
 		tris.append(tri)
 	return tris
 
-def dump_verts(vafmt, verts, first, count):
+def dump_verts(out, vafmt, verts, first, count):
 	for x in range(first, first+count):
-		if verts[0]: print("vp", fmtv(verts[0][x]))
-		if verts[2]: print("vn", fmtv(verts[2][x]))
-		if verts[3]: print("vx", fmtv(verts[3][x]))
-		if verts[1]: print("vt", fmtv(verts[1][x]))
-		if verts[6]: print("vc", fmtb(verts[6][x]))
+		if verts[0]: out.write("vp %s\n" % fmtv(verts[0][x]))
+		if verts[2]: out.write("vn %s\n" % fmtv(verts[2][x]))
+		if verts[3]: out.write("vx %s\n" % fmtv(verts[3][x]))
+		if verts[1]: out.write("vt %s\n" % fmtv(verts[1][x]))
+		if verts[6]: out.write("vc %s\n" % fmtb(verts[6][x]))
 		if verts[4] and verts[5]:
 			out = "vb"
 			for y in range(4):
 				if verts[5][x][y] > 0:
 					out += " %d" % verts[4][x][y]
 					out += " %.9g" % (verts[5][x][y]/255.0)
-			print(out)
+			out.write(out + "\n")
 		for i in range(16, 16+10):
-			if verts[i] and vafmt[i] == 1: print("v%d" % (i-16), fmtb(verts[i][x]))
-			if verts[i] and vafmt[i] == 7: print("v%d" % (i-16), fmtv(verts[i][x]))
+			if verts[i] and vafmt[i] == 1: out.write("v%d %s\n" % (i-16, fmtb(verts[i][x])))
+			if verts[i] and vafmt[i] == 7: out.write("v%d %s\n" % (i-16, fmtv(verts[i][x])))
 
-def dump_tris(tris, first, count, fv):
+def dump_tris(out, tris, first, count, fv):
 	for x in range(first, first+count):
 		tri = tris[x]
-		print("fm", tri[0]-fv, tri[1]-fv, tri[2]-fv)
+		out.write("fm %d %d %d\n" % (tri[0]-fv, tri[1]-fv, tri[2]-fv))
 
-def dump_meshes(file, text, num_meshes, ofs_meshes, vafmt, verts, tris):
+def dump_meshes(out, file, text, num_meshes, ofs_meshes, vafmt, verts, tris):
 	file.seek(ofs_meshes)
 	for x in range(num_meshes):
 		mesh = struct.unpack("<6I", file.read(6*4))
 		name = cstr(text, mesh[0])
 		material = cstr(text, mesh[1])
 		v1, vnum, t1, tnum = mesh[2:]
-		print()
-		print("mesh", name)
-		print("material", material)
-		dump_verts(vafmt, verts, v1, vnum)
-		dump_tris(tris, t1, tnum, v1)
+		out.write("\n")
+		out.write("mesh %s\n" % quote(name))
+		out.write("material %s\n" % quote(material))
+		dump_verts(out, vafmt, verts, v1, vnum)
+		dump_tris(out, tris, t1, tnum, v1)
 
-def dump_iqm(file):
+def dump_iqm(out, file):
 	hdr = struct.unpack("<16s27I", file.read(124));
 	( magic, version, filesize, flags,
 		num_text, ofs_text,
@@ -217,32 +210,32 @@ def dump_iqm(file):
 		num_extensions, ofs_extensions ) = hdr
 
 	if magic != b"INTERQUAKEMODEL\0":
-		print("Not an IQM file (%s)", repr(magic), file=sys.stderr)
+		sys.stderr.write("Not an IQM file (%s)\n" % repr(magic))
 		sys.exit(1)
 
 	if version != 2:
-		print("Not an IQMv2 file.", file=sys.stderr)
+		sys.stderr.write("Not an IQMv2 file.\n")
 		sys.exit(1)
 
-	print("# Inter-Quake Export")
+	out.write("# Inter-Quake Export\n")
 
 	file.seek(ofs_text)
-	text = file.read(num_text);
+	text = file.read(num_text)
 
 	if ofs_joints:
-		dump_joints(file, text, num_joints, ofs_joints)
+		dump_joints(out, file, text, num_joints, ofs_joints)
 	if ofs_vertexarrays:
-		vafmt, verts = load_verts(file, text, num_vertexarrays, num_vertexes, ofs_vertexarrays)
+		vafmt, verts = load_verts(out, file, text, num_vertexarrays, num_vertexes, ofs_vertexarrays)
 	if ofs_triangles:
 		tris = load_tris(file, num_triangles, ofs_triangles, ofs_adjacency)
 	if ofs_meshes:
-		dump_meshes(file, text, num_meshes, ofs_meshes, vafmt, verts, tris)
+		dump_meshes(out, file, text, num_meshes, ofs_meshes, vafmt, verts, tris)
 	poses = load_poses(file, num_poses, ofs_poses)
 	frames = load_frames(file, num_frames, num_framechannels, ofs_frames)
 	# bounds are auto-computed, no need to load
-	dump_anims(file, text, num_anims, ofs_anims, poses, frames)
+	dump_anims(out, file, text, num_anims, ofs_anims, poses, frames)
 
 for arg in sys.argv[1:]:
 	file = open(arg, "rb")
-	dump_iqm(file)
+	dump_iqm(sys.stdout, file)
 

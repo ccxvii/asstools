@@ -96,7 +96,7 @@ def load_model(file):
 	mesh = None
 	pose = model.bindpose
 	anim = None
-	for line in file.xreadlines():
+	for line in file:
 		if '"' in line or '#' in line:
 			line = shlex.split(line, "#")
 		else:
@@ -202,7 +202,7 @@ def load_material(file):
 	lib = {}
 	mat = None
 	tex = None
-	for line in file.xreadlines():
+	for line in file:
 		line = line.strip()
 		if line.startswith("material "):
 			name = line.split(' ', 1)[1]
