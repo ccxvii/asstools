@@ -8,7 +8,7 @@ bl_info = {
 	"name": "Import Inter-Quake Export Simple (.iqe)",
 	"description": "Import Inter-Quake Export Simple.",
 	"author": "Tor Andersson",
-	"version": (2012, 12, 18),
+	"version": (2012, 12, 21),
 	"blender": (2, 6, 5),
 	"location": "File > Import > Inter-Quake Model",
 	"wiki_url": "http://github.com/ccxvii/asstools",
@@ -33,46 +33,14 @@ def reorder(f, ft):
 			ft = ft[2], ft[3], ft[0], ft[1]
 	return f, ft
 
-def import_material_cycles(matname, dirname):
-	texname = matname
-	imgname = texname + ".png"
-
-	if imgname in bpy.data.images:
-		img = bpy.data.images[imgname]
-	else:
-		img = load_image("textures/" + imgname, dirname, place_holder=True)
-
-	if matname in bpy.data.materials:
-		mat = bpy.data.materials[matname]
-	else:
-		mat = bpy.data.materials.new(matname)
-		mat.use_nodes = True
-		nodes = mat.node_tree.nodes
-		links = mat.node_tree.links
-		n_img = nodes.new('TEX_IMAGE')
-		n_img.image = img
-		n_img.show_texture = True
-		n_mix = nodes.new('MIX_SHADER')
-		n_tran = nodes.new('BSDF_TRANSPARENT')
-		n_diff = nodes.new('BSDF_DIFFUSE')
-		n_out = nodes.new('OUTPUT_MATERIAL')
-		links.new(n_img.outputs['Color'], n_diff.inputs['Color'])
-		links.new(n_img.outputs['Alpha'], n_mix.inputs[0])
-		links.new(n_tran.outputs['BSDF'], n_mix.inputs[1])
-		links.new(n_diff.outputs['BSDF'], n_mix.inputs[2])
-		links.new(n_mix.outputs[0], n_out.inputs['Surface'])
-
-	return mat, img
-
 def import_material(matname, dirname):
-	texname = matname
+	texname = matname.split("+")[-1]
 	imgname = texname + ".png"
 
 	if imgname in bpy.data.images:
 		img = bpy.data.images[imgname]
 	else:
 		img = load_image("textures/" + imgname, dirname, place_holder=True)
-		# img.use_premultiply = True -- True for BI, false for GLSL
 
 	if texname in bpy.data.textures:
 		tex = bpy.data.textures[texname]
@@ -126,7 +94,7 @@ def import_mesh(filename):
 			line = line.split()
 		if len(line) == 0: pass
 		elif line[0] == "mesh": in_vp, in_vn, in_vt = [], [], []
-		elif line[0] == "material": mat, img = import_material_cycles(line[1], os.path.dirname(filename))
+		elif line[0] == "material": mat, img = import_material(line[1], os.path.dirname(filename))
 		elif line[0] == "vp": in_vp.append((float(line[1]), float(line[2]), float(line[3])))
 		elif line[0] == "vn": in_vn.append((float(line[1]), float(line[2]), float(line[3])))
 		elif line[0] == "vt": in_vt.append((float(line[1]), 1.0 - float(line[2])))
