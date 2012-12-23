@@ -43,17 +43,20 @@ def setup_splat_material(mat, tex0, tex1, tex2, tex3, tex_splat=None, use_vcol=T
 	n_mat.material = mat
 
 	n_geo_splat = nodes.new('GEOMETRY')
-	n_geo_splat.uv_layer = 'splat'
-	n_geo_splat.color_layer = 'splat'
+	n_geo_splat.name = n_geo_splat.label = "Splat"
+	n_geo_splat.uv_layer = "splat"
+	n_geo_splat.color_layer = "splat"
 
 	if tex_splat:
 		n_tex_splat = nodes.new('TEXTURE')
 		n_tex_splat.texture = tex_splat
+		n_tex_splat.name = n_tex_splat.label = 'TexSplat'
 
 	n_sep_rgb = nodes.new('SEPRGB')
 
 	n_geo_tex = nodes.new('GEOMETRY')
 	n_geo_tex.uv_layer = 'UVMap'
+	n_geo_tex.name = n_geo_tex.label = "TexCoord"
 
 	n_tex_0 = nodes.new('TEXTURE')
 	n_tex_1 = nodes.new('TEXTURE')
@@ -65,13 +68,23 @@ def setup_splat_material(mat, tex0, tex1, tex2, tex3, tex_splat=None, use_vcol=T
 	n_tex_2.texture = tex2
 	n_tex_3.texture = tex3
 
+	n_tex_0.name = n_tex_0.label = 'Tex0'
+	n_tex_1.name = n_tex_1.label = 'Tex1'
+	n_tex_2.name = n_tex_2.label = 'Tex2'
+	n_tex_3.name = n_tex_3.label = 'Tex3'
+
 	n_mix_0 = nodes.new('MIX_RGB')
 	n_mix_1 = nodes.new('MIX_RGB')
 	n_mix_2 = nodes.new('MIX_RGB')
 
+	n_tex_0.name = n_mix_0.label = 'Mix0'
+	n_mix_1.name = n_mix_1.label = 'Mix1'
+	n_mix_2.name = n_mix_2.label = 'Mix2'
+
 	if use_vcol:
 		n_vcol = nodes.new('GEOMETRY')
 		n_vcol.color_layer = 'Col'
+		n_vcol.name = n_vcol.label = 'Color'
 
 		n_mul = nodes.new('MIX_RGB')
 		n_mul.blend_type = 'MULTIPLY'
@@ -152,25 +165,25 @@ def setup_splat_material(mat, tex0, tex1, tex2, tex3, tex_splat=None, use_vcol=T
 	for n in nodes:
 		n.location = n.location[0] * 250, n.location[1] * 250
 
-def import_splat_material(name, tex_path_0, tex_path_1, tex_path_2, tex_path_3, splat_path=None, use_vcol=True):
+def import_splat_material(tex_path_0, tex_path_1, tex_path_2, tex_path_3, splat_path=None, use_vcol=True):
 	splat = import_texture(splat_path) if splat_path else None
 	tex0 = import_texture(tex_path_0)
 	tex1 = import_texture(tex_path_1)
 	tex2 = import_texture(tex_path_2)
 	tex3 = import_texture(tex_path_3)
-	mat = bpy.data.materials.new(name)
-	setup_splat_material(mat, tex0, tex1, tex2, tex3, splat)
+	mat = bpy.data.materials.new('SplatMaterial')
+	setup_splat_material(mat, tex0, tex1, tex2, tex3, splat, use_vcol)
 
 if __name__ == "__main__":
 	if len(sys.argv) > 5 and sys.argv[-5] == '--':
 		a, b, c, d = sys.argv[-5:]
-		import_splat_material('splat', a, b, c, d)
+		import_splat_material(a, b, c, d)
 	elif len(sys.argv) > 6 and sys.argv[-6] == '--':
 		splat, a, b, c, d = sys.argv[-5:]
-		import_splat_material('splat', a, b, c, d, splat_path=splat)
+		import_splat_material(a, b, c, d, splat_path=splat)
 	else:
 		a = "terrain/dirt1.png"
 		b = "terrain/dirt2.png"
 		c = "terrain/basegrass1.png"
 		d = "terrain/rock.png"
-		import_splat_material('splat', a,b,c,d, use_vcol=False)
+		import_splat_material(a,b,c,d, splat_path="splat.png", use_vcol=True)
