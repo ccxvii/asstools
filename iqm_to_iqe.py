@@ -111,7 +111,7 @@ def dump_anims(out, file, text, num_anims, ofs_anims, poses, frames):
 		out.write("framerate %g\n" % anim[3])
 		if anim[4]: out.write("loop\n")
 		for y in range(first, first+count):
-			out.write("\nframe %d\n" % y - first)
+			out.write("\nframe %d\n" % (y - first))
 			dump_frame(out, poses, frames[y])
 
 def load_array(file, format, size, offset, count):
@@ -167,12 +167,12 @@ def dump_verts(out, vafmt, verts, first, count):
 		if verts[1]: out.write("vt %s\n" % fmtv(verts[1][x]))
 		if verts[6]: out.write("vc %s\n" % fmtb(verts[6][x]))
 		if verts[4] and verts[5]:
-			out = "vb"
+			buf = "vb"
 			for y in range(4):
 				if verts[5][x][y] > 0:
-					out += " %d" % verts[4][x][y]
-					out += " %.9g" % (verts[5][x][y]/255.0)
-			out.write(out + "\n")
+					buf += " %d" % verts[4][x][y]
+					buf += " %.9g" % (verts[5][x][y]/255.0)
+			out.write(buf + "\n")
 		for i in range(16, 16+10):
 			if verts[i] and vafmt[i] == 1: out.write("v%d %s\n" % (i-16, fmtb(verts[i][x])))
 			if verts[i] and vafmt[i] == 7: out.write("v%d %s\n" % (i-16, fmtv(verts[i][x])))
@@ -194,6 +194,13 @@ def dump_meshes(out, file, text, num_meshes, ofs_meshes, vafmt, verts, tris):
 		out.write("material %s\n" % quote(material))
 		dump_verts(out, vafmt, verts, v1, vnum)
 		dump_tris(out, tris, t1, tnum, v1)
+
+def dump_comment(out, file, num_comment, ofs_comment):
+	file.seek(ofs_comment)
+	comment = file.read(num_comment)
+	comment = cstr(comment, 0)
+	out.write("\ncomment\n")
+	out.write(comment)
 
 def dump_iqm(out, file):
 	hdr = struct.unpack("<16s27I", file.read(124));
@@ -234,6 +241,9 @@ def dump_iqm(out, file):
 	frames = load_frames(file, num_frames, num_framechannels, ofs_frames)
 	# bounds are auto-computed, no need to load
 	dump_anims(out, file, text, num_anims, ofs_anims, poses, frames)
+
+	if ofs_comment:
+		dump_comment(out, file, num_comment, ofs_comment)
 
 for arg in sys.argv[1:]:
 	file = open(arg, "rb")
