@@ -1,17 +1,12 @@
-# Export: Inter-Quake Export (IQE)
-#
-# TODO: generalize vertex array output logic
-# TODO: multiple vertex color layers
-# TODO: multiple texture coordinate layers
-#
+# IQE Exporter (Inter-Quake Export)
 
 bl_info = {
-	"name": "Export Inter-Quake Model (.iqe)",
-	"description": "Export Inter-Quake Model.",
+	"name": "Inter-Quake Export (.iqe)",
+	"description": "Export IQE (Inter-Quake Export)",
 	"author": "Tor Andersson",
-	"version": (2012, 12, 2),
-	"blender": (2, 6, 4),
-	"location": "File > Export > Inter-Quake Model",
+	"version": (2013, 1, 2),
+	"blender": (2, 6, 5),
+	"location": "File > Export > Inter-Quake Export",
 	"wiki_url": "http://github.com/ccxvii/asstools",
 	"category": "Import-Export",
 }
@@ -22,48 +17,10 @@ from bpy.props import *
 from bpy_extras.io_utils import ExportHelper
 from mathutils import Matrix, Quaternion, Vector
 
-def gather_attributes(attributes, vertex_groups, bones):
-	for g in vertex_groups:
-		if not g.name in bones:
-			if g.name.endswith('.x'): name, count = g.name[:-2], 1
-			elif g.name.endswith('.y'): name, count = g.name[:-2], 2
-			elif g.name.endswith('.z'): name, count = g.name[:-2], 3
-			elif g.name.endswith('.w'): name, count = g.name[:-2], 4
-			else: name, count = g.name, 1
-			if name in attributes:
-				attributes[name] = max(count, attributes[name])
-			else:
-				attributes[name] = count
-
-def export_attributes(file, attributes):
-	list = []
-	if len(attributes):
-		file.write("\n")
-	for name in attributes:
-		count = attributes[name]
-		print("exporting custom vertex attribute:", name)
-		file.write("vertexarray custom%d ubyte %d \"%s\"\n" % (len(list), count, name))
-		list.append((name, count))
-	return list
-
-def make_attribute(groups, vertex_groups, attribute):
-	name, count = attribute
-	x, y, z, w = 0, 0, 0, 0
-	for g in groups:
-		if count == 1 and vertex_groups[g.group].name == name: x = g.weight
-		if count >= 1 and vertex_groups[g.group].name == name + ".x": x = g.weight
-		if count >= 2 and vertex_groups[g.group].name == name + ".y": y = g.weight
-		if count >= 3 and vertex_groups[g.group].name == name + ".z": z = g.weight
-		if count >= 4 and vertex_groups[g.group].name == name + ".w": w = g.weight
-	if count == 1: return (x,)
-	if count == 2: return x, y
-	if count == 3: return x, y, z
-	return x, y, z, w
-
-def make_blend(groups, vertex_groups, bones):
+def make_blend(data, vertex_groups, bones):
 	raw = []
 	total = 0.0
-	for g in groups:
+	for g in data:
 		name = vertex_groups[g.group].name
 		if name in bones:
 			raw.append((g.weight, bones[name]))
@@ -82,15 +39,43 @@ def make_blend(groups, vertex_groups, bones):
 		return (0,1)
 	return tuple(vb)
 
-def export_mesh_data(file, mesh, obj, bones, attributes):
-	print("exporting mesh:", obj.name)
+def make_group(data, vertex_groups):
+	vg = [0] * len(vertex_groups)
+	for g in data:
+		vg[g.group] = g.weight
+	return tuple(vg)
 
-	vgrp = obj.vertex_groups
-	coord_mat = obj.matrix_world
-	normal_mat = coord_mat.inverted().transposed()
+def export_mesh(file, mesh, mesh_name, vertex_groups=None, bones=None):
+	print("exporting mesh:", mesh_name)
 
-	texcoords = mesh.tessface_uv_textures.active
-	colors = mesh.tessface_vertex_colors.active
+	file.write("\n")
+
+	custom = {}
+
+	for layer in mesh.tessface_uv_textures:
+		if layer.name == 'UVMap':
+			custom[layer] = "vt"
+		else:
+			i = len(custom)
+			custom[layer] = "v%d" % i
+			file.write("vertexarray custom%d float 2 \"%s\"\n" % (i, layer.name))
+
+	for layer in mesh.tessface_vertex_colors:
+		if layer.name == 'Col':
+			custom[layer] = "vc"
+		else:
+			i = len(custom)
+			custom[layer] = "v%d" % i
+			file.write("vertexarray custom%d ubyte 4 \"%s\"\n" % (i, layer.name))
+
+	if not bones:
+		for group in vertex_groups:
+			i = len(custom)
+			custom[group] = "v%d" % i
+			file.write("vertexarray custom%d float 1 \"%s\"\n" % (i, group.name))
+
+	if len(custom) > 0:
+		file.write("\n")
 
 	out = {}
 	for face in mesh.tessfaces:
@@ -105,60 +90,62 @@ def export_mesh_data(file, mesh, obj, bones, attributes):
 		face_list = []
 
 		for face in out[fm]:
-			ft = texcoords and texcoords.data[face.index]
-			fc = colors and colors.data[face.index]
-			ft = ft and [ft.uv1, ft.uv2, ft.uv3, ft.uv4]
-			fc = fc and [fc.color1, fc.color2, fc.color3, fc.color4]
+			ft = []
+			for layer in mesh.tessface_uv_textures:
+				data = layer.data[face.index]
+				uv1 = (data.uv1[0], 1.0 - data.uv1[1])
+				uv2 = (data.uv2[0], 1.0 - data.uv2[1])
+				uv3 = (data.uv3[0], 1.0 - data.uv3[1])
+				uv4 = (data.uv4[0], 1.0 - data.uv4[1])
+				ft.append((uv1, uv2, uv3, uv4))
+
+			fc = []
+			for layer in mesh.tessface_vertex_colors:
+				data = layer.data[face.index]
+				color1 = tuple(data.color1)
+				color2 = tuple(data.color2)
+				color3 = tuple(data.color3)
+				color4 = tuple(data.color4)
+				fc.append((color1, color2, color3, color4))
+
 			f = []
 			for i, v in enumerate(face.vertices):
-				vp = tuple(coord_mat * mesh.vertices[v].co)
-				vn = tuple(normal_mat * (mesh.vertices[v].normal if face.use_smooth else face.normal))
-				vt = ft and tuple(ft[i])
-				vc = fc and tuple(fc[i])
-				vb = bones and make_blend(mesh.vertices[v].groups, vgrp, bones)
-				v0 = len(attributes) > 0 and make_attribute(mesh.vertices[v].groups, vgrp, attributes[0])
-				v1 = len(attributes) > 1 and make_attribute(mesh.vertices[v].groups, vgrp, attributes[1])
-				v2 = len(attributes) > 2 and make_attribute(mesh.vertices[v].groups, vgrp, attributes[2])
-				v3 = len(attributes) > 3 and make_attribute(mesh.vertices[v].groups, vgrp, attributes[3])
-				v4 = len(attributes) > 4 and make_attribute(mesh.vertices[v].groups, vgrp, attributes[4])
-				v5 = len(attributes) > 5 and make_attribute(mesh.vertices[v].groups, vgrp, attributes[5])
-				v6 = len(attributes) > 6 and make_attribute(mesh.vertices[v].groups, vgrp, attributes[6])
-				v7 = len(attributes) > 7 and make_attribute(mesh.vertices[v].groups, vgrp, attributes[7])
-				v8 = len(attributes) > 8 and make_attribute(mesh.vertices[v].groups, vgrp, attributes[8])
-				v9 = len(attributes) > 9 and make_attribute(mesh.vertices[v].groups, vgrp, attributes[9])
-				v = vp, vn, vt, vc, vb, v0, v1, v2, v3, v4, v5, v6, v7, v8, v9
+				vp = tuple(mesh.vertices[v].co)
+				vn = tuple(mesh.vertices[v].normal if face.use_smooth else face.normal)
+				vb = bones and make_blend(mesh.vertices[v].groups, vertex_groups, bones)
+				vg = not bones and make_group(mesh.vertices[v].groups, vertex_groups)
+				vt = tuple([x[i] for x in ft])
+				vc = tuple([x[i] for x in fc])
+				v = vp, vn, vb, vg, vt, vc
 				if v not in vertex_map:
 					vertex_map[v] = len(vertex_list)
 					vertex_list.append(v)
 				f.append(vertex_map[v])
 			face_list.append(f)
 
-		file.write("\n")
-		file.write("mesh \"%s\"\n" % obj.name)
+		file.write("mesh \"%s\"\n" % mesh_name)
 		file.write("material \"%s\"\n" % (fm < len(mesh.materials) and mesh.materials[fm].name))
-		for vp, vn, vt, vc, vb, v0, v1, v2, v3, v4, v5, v6, v7, v8, v9 in vertex_list:
+
+		for vp, vn, vb, vg, vt, vc in vertex_list:
 			file.write("vp %.9g %.9g %.9g\n" % vp)
 			file.write("vn %.9g %.9g %.9g\n" % vn)
-			if vt: file.write("vt %.9g %.9g\n" % (vt[0], 1.0 - vt[1]))
-			if vc: file.write("vc %.9g %.9g %.9g\n" % vc)
-			if vb: file.write("vb %s\n" % " ".join("%.9g" % x for x in vb))
-			if v0: file.write("v0 %s\n" % " ".join("%.9g" % x for x in v0))
-			if v1: file.write("v1 %s\n" % " ".join("%.9g" % x for x in v1))
-			if v2: file.write("v2 %s\n" % " ".join("%.9g" % x for x in v2))
-			if v3: file.write("v3 %s\n" % " ".join("%.9g" % x for x in v3))
-			if v4: file.write("v4 %s\n" % " ".join("%.9g" % x for x in v4))
-			if v5: file.write("v5 %s\n" % " ".join("%.9g" % x for x in v5))
-			if v6: file.write("v6 %s\n" % " ".join("%.9g" % x for x in v6))
-			if v7: file.write("v7 %s\n" % " ".join("%.9g" % x for x in v7))
-			if v8: file.write("v8 %s\n" % " ".join("%.9g" % x for x in v8))
-			if v9: file.write("v9 %s\n" % " ".join("%.9g" % x for x in v9))
+			for i, layer in enumerate(mesh.tessface_uv_textures):
+				file.write("%s %.9g %.9g\n" % (custom[layer], vt[i][0], vt[i][1]))
+			for i, layer in enumerate(mesh.tessface_vertex_colors):
+				file.write("%s %.9g %.9g %.9g 1\n" % (custom[layer], vc[i][0], vc[i][1], vc[i][2]))
+			if vb:
+				file.write("vb %s\n" % " ".join("%.9g" % x for x in vb))
+			if vg:
+				for i, group in enumerate(vertex_groups):
+					file.write("%s %.9g\n" % (custom[group], vg[i]))
+
 		for f in face_list:
 			if len(f) == 3:
 				file.write("fm %d %d %d\n" % (f[2], f[1], f[0]))
 			else:
 				file.write("fm %d %d %d %d\n" % (f[3], f[2], f[1], f[0]))
 
-def export_mesh_object(file, scene, obj, bones=None, attributes=None):
+def export_mesh_object(file, scene, obj, bones=None):
 	# temporarily disable armature modifiers
 	amtmods = []
 	for mod in obj.modifiers:
@@ -167,8 +154,10 @@ def export_mesh_object(file, scene, obj, bones=None, attributes=None):
 			mod.show_viewport = False
 
 	mesh = obj.to_mesh(scene, True, 'PREVIEW')
+	mesh.transform(obj.matrix_world)
 	mesh.calc_tessface()
-	export_mesh_data(file, mesh, obj, bones, attributes)
+	mesh.calc_normals()
+	export_mesh(file, mesh, obj.data.name, obj.vertex_groups, bones)
 	bpy.data.meshes.remove(mesh)
 
 	# restore armature modifiers
@@ -239,43 +228,36 @@ def export_actions(file, scene, obj, bones):
 	if obj.animation_data: obj.animation_data.action = old_action
 	scene.frame_set(old_time)
 
-def find_armature(scene):
-	for obj in scene.objects:
-		if obj.type == 'ARMATURE':
-			return obj
-	return None
+def export_comment(file, obj):
+	if "comment" in bpy.data.texts:
+		file.write("\ncomment\n")
+		file.write(bpy.data.texts["comment"].as_string())
 
-def find_meshes(scene, amtobj):
-	return [x for x in scene.objects if x.type == 'MESH' and x.find_armature() == amtobj]
-
-def export_scene(file, scene):
-	amtobj = find_armature(scene)
-	meshobjs = find_meshes(scene, amtobj)
-	bones = None
-
-	if amtobj:
-		bones = export_armature(file, amtobj, amtobj.data)
-
-	attributes = {}
-	for obj in meshobjs:
-		gather_attributes(attributes, obj.vertex_groups, bones)
-	attributes = export_attributes(file, attributes)
-
-	for obj in meshobjs:
-		export_mesh_object(file, scene, obj, bones, attributes)
-
-	if amtobj:
-		export_actions(file, scene, amtobj, bones)
-
-def export_iqe(filename):
-	file = open(filename, "w")
+def export_object(file, scene, obj):
 	file.write("# Inter-Quake Export\n")
-	export_scene(file, bpy.context.scene)
-	file.close()
+	amtobj = obj.find_armature()
+	bones = amtobj and export_armature(file, amtobj, amtobj.data)
+	export_mesh_object(file, scene, obj, bones)
+	if amtobj: export_actions(file, scene, amtobj, bones)
+	export_comment(file, obj)
 
-#
-# Register addon
-#
+# ---
+
+def export_object_list(context, list):
+	for obj in list:
+		if obj.type == 'MESH':
+			filename = obj.name + ".iqe"
+			print("exporting object:", filename)
+			file = open(filename, "w")
+			export_object(file, context.scene, obj)
+			file.close()
+
+def export_iqe(context, filename):
+	file = open(filename, "w")
+	for obj in context.selected_objects:
+		if obj.type == 'MESH':
+			export_object(file, context.scene, obj)
+	file.close()
 
 class ExportIQE(bpy.types.Operator, ExportHelper):
 	bl_idname = "export.iqe"
@@ -284,11 +266,11 @@ class ExportIQE(bpy.types.Operator, ExportHelper):
 	filename_ext = ".iqe"
 
 	def execute(self, context):
-		export_iqe(self.properties.filepath)
+		export_iqe(context, self.properties.filepath)
 		return {'FINISHED'}
 
 def menu_func(self, context):
-	self.layout.operator(ExportIQE.bl_idname, text="Inter-Quake Model (.iqe)")
+	self.layout.operator(ExportIQE.bl_idname, text="Inter-Quake Export (.iqe)")
 
 def register():
 	bpy.utils.register_module(__name__)
@@ -298,10 +280,6 @@ def unregister():
 	bpy.utils.unregister_module(__name__)
 	bpy.types.INFO_MT_file_export.remove(menu_func)
 
-def batch(output):
-	export_iqe(output)
-
 if __name__ == "__main__":
 	register()
-	if len(sys.argv) > 4 and sys.argv[-2] == '--':
-		batch(sys.argv[-1])
+	export_object_list(bpy.context, bpy.context.scene.objects)
