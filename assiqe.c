@@ -30,6 +30,11 @@ int dohips = 0; // reparent thighs to pelvis (see zo_hom_marche)
 char *only_one_node = NULL;
 int list_all_nodes = 0;
 
+#define MAX_UVMAP 4
+#define FIRST_UVMAP 0
+#define MAX_COL 4
+#define FIRST_COL 4
+
 // We use %.9g to print floats with 9 digits of precision which
 // is enough to represent a 32-bit float accurately, while still
 // shortening if possible to save space for all those 0s and 1s.
@@ -892,6 +897,35 @@ void bake_scene_skin(const struct aiScene *scene)
 		bake_mesh_skin(scene->mMeshes[i]);
 }
 
+void export_custom_vertexarrays(FILE *out, const struct aiScene *scene)
+{
+	int i, t, first = 1;
+	int seen[10] = {0};
+	for (i = 0; i < scene->mNumMeshes; i++) {
+		struct aiMesh *mesh = scene->mMeshes[i];
+		for (t = 1; t < MAX_UVMAP; t++) {
+			int custom = FIRST_UVMAP + t - 1;
+			if (mesh->mTextureCoords[t]) {
+				if (!seen[custom]) {
+					if (first) { fprintf(out, "\n"); first = 0; }
+					fprintf(out, "vertexarray custom%d float 2 \"uvmap.%d\"\n", custom, t);
+					seen[custom] = 1;
+				}
+			}
+		}
+		for (t = 1; t < MAX_COL; t++) {
+			int custom = FIRST_COL + t - 1;
+			if (mesh->mColors[t]) {
+				if (!seen[custom]) {
+					if (first) { fprintf(out, "\n"); first = 0; }
+					fprintf(out, "vertexarray custom%d ubyte 4 \"color.%d\"\n", custom, t);
+					seen[custom] = 1;
+				}
+			}
+		}
+	}
+}
+
 /*
  * Export meshes. Group them by materials. Also apply the node transform
  * to the vertices. IQE does not have a concept of per-group transforms.
@@ -979,11 +1013,20 @@ void export_node(FILE *out, const struct aiScene *scene, const struct aiNode *no
 					aiTransformVecByMatrix3(&vn, &mat3);
 				fprintf(out, "vn %.9g %.9g %.9g\n", vn.x, vn.y, vn.z);
 			}
+
 			if (mesh->mTextureCoords[0]) {
 				float u = mesh->mTextureCoords[0][k].x;
 				float v = 1 - mesh->mTextureCoords[0][k].y;
 				fprintf(out, "vt %.9g %.9g\n", u, v);
-			} else fprintf(out, "vt 0 0\n");
+			}
+			for (t = 1; t <= MAX_UVMAP; t++) {
+				if (mesh->mTextureCoords[t]) {
+					float u = mesh->mTextureCoords[t][k].x;
+					float v = 1 - mesh->mTextureCoords[t][k].y;
+					fprintf(out, "v%d %.9g %.9g\n", FIRST_UVMAP+t-1, u, v);
+				}
+			}
+
 			if (mesh->mColors[0]) {
 				float r = mesh->mColors[0][k].r; r = floorf(r * 255) / 255;
 				float g = mesh->mColors[0][k].g; g = floorf(g * 255) / 255;
@@ -991,6 +1034,16 @@ void export_node(FILE *out, const struct aiScene *scene, const struct aiNode *no
 				float a = mesh->mColors[0][k].a; a = floorf(a * 255) / 255;
 				fprintf(out, "vc %.9g %.9g %.9g %.9g\n", r, g, b, a);
 			}
+			for (t = 1; t <= MAX_COL; t++) {
+				if (mesh->mColors[t]) {
+					float r = mesh->mColors[t][k].r; r = floorf(r * 255) / 255;
+					float g = mesh->mColors[t][k].g; g = floorf(g * 255) / 255;
+					float b = mesh->mColors[t][k].b; b = floorf(b * 255) / 255;
+					float a = mesh->mColors[t][k].a; a = floorf(a * 255) / 255;
+					fprintf(out, "v%d %.9g %.9g %.9g %.9g\n", FIRST_COL+t-1, r, g, b, a);
+				}
+			}
+
 			if (dobone) {
 				fprintf(out, "vb");
 				for (t = 0; t < vb[k].n; t++) {
@@ -1199,6 +1252,7 @@ int main(int argc, char **argv)
 	if (domesh) {
 		struct aiMatrix4x4 identity;
 		aiIdentityMatrix4(&identity);
+		export_custom_vertexarrays(file, scene);
 		export_node(file, scene, scene->mRootNode, identity, "SCENE");
 	}
 
