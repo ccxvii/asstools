@@ -4,5 +4,5 @@ import sys
 from iqe import *
 
 m = load_model(sys.stdin)
-scale_model(m, 0.5)
+scale_model(m, 0.45)
 m.save(sys.stdout)

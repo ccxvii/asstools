@@ -3,9 +3,9 @@
 import sys
 from iqe import *
 
-target = load_model(sys.stdin)
+target = load_model(open(sys.argv[1]))
 target.anims = []
-for arg in sys.argv[1:]:
+for arg in sys.argv[2:]:
 	source = load_model(open(arg))
 	copy_animation(target, source)
 target.save(sys.stdout)
