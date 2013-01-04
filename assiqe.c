@@ -729,11 +729,11 @@ void export_bone_list(FILE *out)
 	for (i = 0; i < numbones; i++) {
 		if (bonelist[i].isbone) {
 			if (bonelist[i].parent >= 0)
-				fprintf(out, "joint %s %d\n",
+				fprintf(out, "joint \"%s\" %d\n",
 					bonelist[i].clean_name,
 					bonelist[bonelist[i].parent].number);
 			else
-				fprintf(out, "joint %s -1\n", bonelist[i].clean_name);
+				fprintf(out, "joint \"%s\" -1\n", bonelist[i].clean_name);
 		}
 	}
 
@@ -750,7 +750,7 @@ void export_static_animation(FILE *out, const struct aiScene *scene)
 {
 	fprintf(stderr, "exporting animation: static rest pose\n");
 	fprintf(out, "\n");
-	fprintf(out, "\nanimation %s\n", basename);
+	fprintf(out, "\nanimation \"%s\"\n", basename);
 	fprintf(out, "framerate 30\n");
 	fprintf(out, "frame\n");
 	apply_initial_frame();
@@ -813,9 +813,9 @@ void export_animations(FILE *out, const struct aiScene *scene)
 	for (i = 0; i < scene->mNumAnimations; i++) {
 		const struct aiAnimation *anim = scene->mAnimations[i];
 		if (scene->mNumAnimations > 1)
-			fprintf(out, "\nanimation %s,%02d\n", basename, i);
+			fprintf(out, "\nanimation \"%s,%02d\"\n", basename, i);
 		else
-			fprintf(out, "\nanimation %s\n", basename);
+			fprintf(out, "\nanimation \"%s\"\n", basename);
 		fprintf(out, "framerate 30\n");
 		len = animation_length(anim);
 		fprintf(stderr, "exporting animation %d: %d frames\n", i+1, len);
@@ -969,8 +969,8 @@ void export_node(FILE *out, const struct aiScene *scene, const struct aiNode *no
 				clean_name, i, mesh->mNumVertices, mesh->mNumFaces);
 
 		fprintf(out, "\n");
-		fprintf(out, "mesh %s\n", clean_name);
-		fprintf(out, "material %s\n", find_material(material));
+		fprintf(out, "mesh \"%s\"\n", clean_name);
+		fprintf(out, "material \"%s\"\n", find_material(material));
 
 		struct vb *vb = (struct vb*) malloc(mesh->mNumVertices * sizeof(*vb));
 		memset(vb, 0, mesh->mNumVertices * sizeof(*vb));
