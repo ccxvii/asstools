@@ -19,28 +19,32 @@ class Mesh:
 		self.colors = []
 		self.blends = []
 		self.faces = []
+		self.custom = [[] for x in range(10)]
 
 	def save(self, file):
 		print >>file
-		print >>file, "mesh", self.name
-		print >>file, "material", '+'.join(self.material)
+		print >>file, 'mesh "%s"' % self.name
+		print >>file, 'material "%s"' % '+'.join(self.material)
 		for i in xrange(len(self.positions)):
 			xyz = self.positions[i]
 			print >>file, "vp %.9g %.9g %.9g" % xyz
-			if len(self.normals) == len(self.positions):
+			if len(self.normals):
 				xyz = self.normals[i]
 				print >>file, "vn %.9g %.9g %.9g" % xyz
-			if len(self.texcoords) == len(self.positions):
+			if len(self.texcoords):
 				xy = self.texcoords[i]
 				print >>file, "vt %.9g %.9g" % xy
-			if len(self.colors) == len(self.positions):
+			if len(self.colors):
 				xyzw = self.colors[i]
 				print >>file, "vc %.9g %.9g %.9g %.9g" % xyzw
-			if len(self.blends) == len(self.positions):
+			if len(self.blends):
 				blend = self.blends[i]
 				if len(blend) > 0:
 					blend = reduce(lambda x,y: x+y, blend) # flatten pairs
 				print >>file, "vb", " ".join(["%.9g" % x for x in blend])
+			for k in range(10):
+				if len(self.custom[k]):
+					print >>file, "v%d" % k, " ".join(["%.9g" % x for x in self.custom[k][i]])
 		for face in self.faces:
 			if len(face) == 3:
 				print >>file, "fm %d %d %d" % (face[0], face[1], face[2])
@@ -56,7 +60,7 @@ class Animation:
 
 	def save(self, file):
 		print >>file
-		print >>file, "animation", self.name
+		print >>file, 'animation "%s"' % self.name
 		if self.framerate != 30: print >>file, "framerate %g" % self.framerate
 		if self.loop: print >>file, "loop"
 		framenumber = 0
@@ -73,13 +77,19 @@ class Model:
 		self.bindpose = []
 		self.meshes = []
 		self.anims = []
+		self.vertexarrays = []
 
 	def save(self, file):
 		print >>file, "# Inter-Quake Export"
+		if len(self.vertexarrays) > 0:
+			print >>file
+			# vertexarray custom0 float 2 "lightmap"
+			for va in self.vertexarrays:
+				print >>file, 'vertexarray %s %s %s "%s"' % va
 		if len(self.bones) > 0:
 			print >>file
 			for bone in self.bones:
-				print >>file, "joint", bone[0], bone[1]
+				print >>file, 'joint "%s" %d' % (bone[0], bone[1])
 			print >>file
 			for pose in self.bindpose:
 				print >>file, "pq", " ".join(["%.9g" % x for x in pose])
@@ -114,16 +124,21 @@ def load_model(file):
 			model.meshes.append(mesh)
 		elif line[0] == "material":
 			mesh.material = line[1].split('+')
-		elif line[0] == "vp":
-			mesh.positions.append(tuple([float(x) for x in line[1:4]]))
-		elif line[0] == "vt":
-			mesh.texcoords.append(tuple([float(x) for x in line[1:3]]))
-		elif line[0] == "vn":
-			mesh.normals.append(tuple([float(x) for x in line[1:4]]))
-		elif line[0] == "vc":
-			mesh.colors.append(tuple([float(x) for x in line[1:5]]))
-		elif line[0] == "vb":
-			mesh.blends.append(blend_pairs([float(x) for x in line[1:]]))
+		elif line[0] == "vp": mesh.positions.append(tuple([float(x) for x in line[1:4]]))
+		elif line[0] == "vt": mesh.texcoords.append(tuple([float(x) for x in line[1:3]]))
+		elif line[0] == "vn": mesh.normals.append(tuple([float(x) for x in line[1:4]]))
+		elif line[0] == "vc": mesh.colors.append(tuple([float(x) for x in line[1:5]]))
+		elif line[0] == "vb": mesh.blends.append(blend_pairs([float(x) for x in line[1:]]))
+		elif line[0] == "v0": mesh.custom[0].append(tuple([float(x) for x in line[1:]]))
+		elif line[0] == "v1": mesh.custom[1].append(tuple([float(x) for x in line[1:]]))
+		elif line[0] == "v2": mesh.custom[2].append(tuple([float(x) for x in line[1:]]))
+		elif line[0] == "v3": mesh.custom[3].append(tuple([float(x) for x in line[1:]]))
+		elif line[0] == "v4": mesh.custom[4].append(tuple([float(x) for x in line[1:]]))
+		elif line[0] == "v5": mesh.custom[5].append(tuple([float(x) for x in line[1:]]))
+		elif line[0] == "v6": mesh.custom[6].append(tuple([float(x) for x in line[1:]]))
+		elif line[0] == "v7": mesh.custom[7].append(tuple([float(x) for x in line[1:]]))
+		elif line[0] == "v8": mesh.custom[8].append(tuple([float(x) for x in line[1:]]))
+		elif line[0] == "v9": mesh.custom[9].append(tuple([float(x) for x in line[1:]]))
 		elif line[0] == "fm":
 			mesh.faces.append(tuple([int(x) for x in line[1:]]))
 		elif line[0] == "animation":
@@ -136,6 +151,8 @@ def load_model(file):
 		elif line[0] == "frame":
 			pose = []
 			anim.frames.append(pose)
+		elif line[0] == "vertexarray":
+			model.vertexarrays.append(tuple(line[1:]))
 	return model
 
 def save_as_obj(model, filename):
@@ -260,6 +277,7 @@ def backface_mesh(mesh):
 	mirror.texcoords = mesh.texcoords
 	mirror.colors = mesh.colors
 	mirror.blends = mesh.blends
+	mirror.custom = mesh.custom
 	mirror.normals = []
 	for x,y,z in mesh.normals:
 		mirror.normals.append((-x,-y,-z))
@@ -387,6 +405,8 @@ def append_mesh(output, mesh):
 	output.normals += mesh.normals
 	output.colors += mesh.colors
 	output.blends += mesh.blends
+	for k in range(10):
+		output.custom[k] += mesh.custom[k]
 	for face in mesh.faces:
 		if len(face) == 3:
 			a, b, c = face
@@ -532,6 +552,7 @@ def split_and_save_meshes(model):
 	for name in mesh_list:
 		part = Model()
 		part.name = name
+		part.vertexarrays = model.vertexarrays
 		part.bones = model.bones
 		part.bindpose = model.bindpose
 		part.meshes = mesh_list[name]
