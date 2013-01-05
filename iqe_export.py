@@ -51,30 +51,31 @@ def export_mesh(file, mesh, mesh_name, vertex_groups=None, bones=None):
 	file.write("\n")
 
 	custom = {}
+	count = 0
 
 	for layer in mesh.tessface_uv_textures:
 		if layer.name == 'UVMap':
 			custom[layer] = "vt"
 		else:
-			i = len(custom)
-			custom[layer] = "v%d" % i
-			file.write("vertexarray custom%d float 2 \"%s\"\n" % (i, layer.name))
+			custom[layer] = "v%d" % count
+			file.write("vertexarray custom%d float 2 \"%s\"\n" % (count, layer.name))
+			count += 1
 
 	for layer in mesh.tessface_vertex_colors:
 		if layer.name == 'Col':
 			custom[layer] = "vc"
 		else:
-			i = len(custom)
-			custom[layer] = "v%d" % i
-			file.write("vertexarray custom%d ubyte 4 \"%s\"\n" % (i, layer.name))
+			custom[layer] = "v%d" % count
+			file.write("vertexarray custom%d ubyte 4 \"%s\"\n" % (count, layer.name))
+			count += 1
 
 	if not bones:
 		for group in vertex_groups:
-			i = len(custom)
-			custom[group] = "v%d" % i
-			file.write("vertexarray custom%d float 1 \"%s\"\n" % (i, group.name))
+			custom[group] = "v%d" % count
+			file.write("vertexarray custom%d float 1 \"%s\"\n" % (count, group.name))
+			count += 1
 
-	if len(custom) > 0:
+	if count > 0:
 		file.write("\n")
 
 	out = {}
