@@ -45,38 +45,38 @@ def make_group(data, vertex_groups):
 		vg[g.group] = g.weight
 	return tuple(vg)
 
-def export_mesh(file, mesh, mesh_name, vertex_groups=None, bones=None):
+def gather_custom_layers(file, mesh, vertex_groups=None, bones=None, custom={}):
+
+	custom["UVMap"] = "vt"
+	custom["Col"] = "vc"
+
+	for layer in mesh.tessface_uv_textures:
+		if layer.name != 'UVMap':
+			i = len(custom) - 2
+			custom[layer.name] = "v%d" % i
+			file.write("vertexarray custom%d float 2 \"%s\"\n" % (i, layer.name))
+
+	for layer in mesh.tessface_vertex_colors:
+		if layer.name != 'Col':
+			i = len(custom) - 2
+			custom[layer.name] = "v%d" % i
+			file.write("vertexarray custom%d ubyte 4 \"%s\"\n" % (i, layer.name))
+
+	if not bones:
+		for group in vertex_groups:
+			i = len(custom) - 2
+			custom[group.name] = "v%d" % i
+			file.write("vertexarray custom%d float 1 \"%s\"\n" % (i, group.name))
+
+	if len(custom) > 2:
+		file.write("\n")
+
+def export_mesh(file, mesh, mesh_name, vertex_groups=None, bones=None, custom={}):
 	print("exporting mesh:", mesh_name)
 
 	file.write("\n")
 
-	custom = {}
-	count = 0
-
-	for layer in mesh.tessface_uv_textures:
-		if layer.name == 'UVMap':
-			custom[layer] = "vt"
-		else:
-			custom[layer] = "v%d" % count
-			file.write("vertexarray custom%d float 2 \"%s\"\n" % (count, layer.name))
-			count += 1
-
-	for layer in mesh.tessface_vertex_colors:
-		if layer.name == 'Col':
-			custom[layer] = "vc"
-		else:
-			custom[layer] = "v%d" % count
-			file.write("vertexarray custom%d ubyte 4 \"%s\"\n" % (count, layer.name))
-			count += 1
-
-	if not bones:
-		for group in vertex_groups:
-			custom[group] = "v%d" % count
-			file.write("vertexarray custom%d float 1 \"%s\"\n" % (count, group.name))
-			count += 1
-
-	if count > 0:
-		file.write("\n")
+	gather_custom_layers(file, mesh, vertex_groups, bones, custom)
 
 	out = {}
 	for face in mesh.tessfaces:
@@ -111,13 +111,9 @@ def export_mesh(file, mesh, mesh_name, vertex_groups=None, bones=None):
 
 			f = []
 			for i, v in enumerate(face.vertices):
-				vp = tuple(mesh.vertices[v].co)
-				vn = tuple(mesh.vertices[v].normal if face.use_smooth else face.normal)
-				vb = bones and make_blend(mesh.vertices[v].groups, vertex_groups, bones)
-				vg = not bones and make_group(mesh.vertices[v].groups, vertex_groups)
 				vt = tuple([x[i] for x in ft])
 				vc = tuple([x[i] for x in fc])
-				v = vp, vn, vb, vg, vt, vc
+				v = v, vt, vc
 				if v not in vertex_map:
 					vertex_map[v] = len(vertex_list)
 					vertex_list.append(v)
@@ -127,18 +123,22 @@ def export_mesh(file, mesh, mesh_name, vertex_groups=None, bones=None):
 		file.write("mesh \"%s\"\n" % mesh_name)
 		file.write("material \"%s\"\n" % (fm < len(mesh.materials) and mesh.materials[fm].name))
 
-		for vp, vn, vb, vg, vt, vc in vertex_list:
+		for v, vt, vc in vertex_list:
+			vp = tuple(mesh.vertices[v].co)
+			vn = tuple(mesh.vertices[v].normal)
+			vb = bones and make_blend(mesh.vertices[v].groups, vertex_groups, bones)
+			vg = not bones and make_group(mesh.vertices[v].groups, vertex_groups)
 			file.write("vp %.9g %.9g %.9g\n" % vp)
 			file.write("vn %.9g %.9g %.9g\n" % vn)
 			for i, layer in enumerate(mesh.tessface_uv_textures):
-				file.write("%s %.9g %.9g\n" % (custom[layer], vt[i][0], vt[i][1]))
+				file.write("%s %.9g %.9g\n" % (custom[layer.name], vt[i][0], vt[i][1]))
 			for i, layer in enumerate(mesh.tessface_vertex_colors):
-				file.write("%s %.9g %.9g %.9g 1\n" % (custom[layer], vc[i][0], vc[i][1], vc[i][2]))
+				file.write("%s %.9g %.9g %.9g 1\n" % (custom[layer.name], vc[i][0], vc[i][1], vc[i][2]))
 			if vb:
 				file.write("vb %s\n" % " ".join("%.9g" % x for x in vb))
 			if vg:
 				for i, group in enumerate(vertex_groups):
-					file.write("%s %.9g\n" % (custom[group], vg[i]))
+					file.write("%s %.9g\n" % (custom[group.name], vg[i]))
 
 		for f in face_list:
 			if len(f) == 3:
@@ -146,7 +146,7 @@ def export_mesh(file, mesh, mesh_name, vertex_groups=None, bones=None):
 			else:
 				file.write("fm %d %d %d %d\n" % (f[3], f[2], f[1], f[0]))
 
-def export_mesh_object(file, scene, obj, bones=None):
+def export_mesh_object(file, scene, obj, bones=None, custom={}):
 	# temporarily disable armature modifiers
 	amtmods = []
 	for mod in obj.modifiers:
@@ -158,7 +158,7 @@ def export_mesh_object(file, scene, obj, bones=None):
 	mesh.transform(obj.matrix_world)
 	mesh.calc_tessface()
 	mesh.calc_normals()
-	export_mesh(file, mesh, obj.data.name, obj.vertex_groups, bones)
+	export_mesh(file, mesh, obj.data.name, obj.vertex_groups, bones, custom)
 	bpy.data.meshes.remove(mesh)
 
 	# restore armature modifiers
@@ -238,7 +238,8 @@ def export_object(file, scene, obj):
 	file.write("# Inter-Quake Export\n")
 	amtobj = obj.find_armature()
 	bones = amtobj and export_armature(file, amtobj, amtobj.data)
-	export_mesh_object(file, scene, obj, bones)
+	custom = {}
+	export_mesh_object(file, scene, obj, bones, custom)
 	if amtobj: export_actions(file, scene, amtobj, bones)
 	export_comment(file, obj)
 
