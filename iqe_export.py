@@ -4,7 +4,7 @@ bl_info = {
 	"name": "Inter-Quake Export (.iqe)",
 	"description": "Export IQE (Inter-Quake Export)",
 	"author": "Tor Andersson",
-	"version": (2013, 1, 2),
+	"version": (2013, 1, 6),
 	"blender": (2, 6, 5),
 	"location": "File > Export > Inter-Quake Export",
 	"wiki_url": "http://github.com/ccxvii/asstools",
@@ -46,35 +46,33 @@ def make_group(data, vertex_groups):
 	return tuple(vg)
 
 def gather_custom_layers(file, mesh, vertex_groups=None, bones=None, custom={}):
-
 	custom["UVMap"] = "vt"
 	custom["Col"] = "vc"
 
 	for layer in mesh.tessface_uv_textures:
-		if layer.name != 'UVMap':
+		if layer.name != 'UVMap' and layer.name not in custom:
 			i = len(custom) - 2
 			custom[layer.name] = "v%d" % i
+			if i == 0: file.write("\n")
 			file.write("vertexarray custom%d float 2 \"%s\"\n" % (i, layer.name))
 
 	for layer in mesh.tessface_vertex_colors:
-		if layer.name != 'Col':
+		if layer.name != 'Col' and layer.name not in custom:
 			i = len(custom) - 2
 			custom[layer.name] = "v%d" % i
+			if i == 0: file.write("\n")
 			file.write("vertexarray custom%d ubyte 4 \"%s\"\n" % (i, layer.name))
 
 	if not bones:
 		for group in vertex_groups:
-			i = len(custom) - 2
-			custom[group.name] = "v%d" % i
-			file.write("vertexarray custom%d float 1 \"%s\"\n" % (i, group.name))
-
-	if len(custom) > 2:
-		file.write("\n")
+			if group.name not in custom:
+				i = len(custom) - 2
+				custom[group.name] = "v%d" % i
+				if i == 0: file.write("\n")
+				file.write("vertexarray custom%d float 1 \"%s\"\n" % (i, group.name))
 
 def export_mesh(file, mesh, mesh_name, vertex_groups=None, bones=None, custom={}):
 	print("exporting mesh:", mesh_name)
-
-	file.write("\n")
 
 	gather_custom_layers(file, mesh, vertex_groups, bones, custom)
 
@@ -85,29 +83,30 @@ def export_mesh(file, mesh, mesh_name, vertex_groups=None, bones=None, custom={}
 			out[fm] = []
 		out[fm].append(face)
 
+	ft = [None] * len(mesh.tessface_uv_textures)
+	fc = [None] * len(mesh.tessface_vertex_colors)
+
 	for fm in out.keys():
 		vertex_map = {}
 		vertex_list = []
 		face_list = []
 
 		for face in out[fm]:
-			ft = []
-			for layer in mesh.tessface_uv_textures:
+			for i, layer in enumerate(mesh.tessface_uv_textures):
 				data = layer.data[face.index]
-				uv1 = (data.uv1[0], 1.0 - data.uv1[1])
-				uv2 = (data.uv2[0], 1.0 - data.uv2[1])
-				uv3 = (data.uv3[0], 1.0 - data.uv3[1])
-				uv4 = (data.uv4[0], 1.0 - data.uv4[1])
-				ft.append((uv1, uv2, uv3, uv4))
+				uv1 = data.uv1[0], 1.0 - data.uv1[1]
+				uv2 = data.uv2[0], 1.0 - data.uv2[1]
+				uv3 = data.uv3[0], 1.0 - data.uv3[1]
+				uv4 = data.uv4[0], 1.0 - data.uv4[1]
+				ft[i] = uv1, uv2, uv3, uv4
 
-			fc = []
-			for layer in mesh.tessface_vertex_colors:
+			for i, layer in enumerate(mesh.tessface_vertex_colors):
 				data = layer.data[face.index]
 				color1 = tuple(data.color1)
 				color2 = tuple(data.color2)
 				color3 = tuple(data.color3)
 				color4 = tuple(data.color4)
-				fc.append((color1, color2, color3, color4))
+				fc[i] = color1, color2, color3, color4
 
 			f = []
 			for i, v in enumerate(face.vertices):
@@ -120,6 +119,7 @@ def export_mesh(file, mesh, mesh_name, vertex_groups=None, bones=None, custom={}
 				f.append(vertex_map[v])
 			face_list.append(f)
 
+		file.write("\n")
 		file.write("mesh \"%s\"\n" % mesh_name)
 		file.write("material \"%s\"\n" % (fm < len(mesh.materials) and mesh.materials[fm].name))
 
@@ -146,7 +146,16 @@ def export_mesh(file, mesh, mesh_name, vertex_groups=None, bones=None, custom={}
 			else:
 				file.write("fm %d %d %d %d\n" % (f[3], f[2], f[1], f[0]))
 
-def export_mesh_object(file, scene, obj, bones=None, custom={}):
+def export_object_imp(file, scene, obj, mesh_name, vertex_groups=None, bones=None, custom={}, apply_matrix=False):
+	mesh = obj.to_mesh(scene, True, 'PREVIEW')
+	if apply_matrix:
+		mesh.transform(obj.matrix_world)
+	mesh.calc_tessface()
+	mesh.calc_normals()
+	export_mesh(file, mesh, mesh_name, vertex_groups, bones, custom)
+	bpy.data.meshes.remove(mesh)
+
+def export_object(file, scene, obj, bones=None, custom={}, apply_matrix=False):
 	# temporarily disable armature modifiers
 	amtmods = []
 	for mod in obj.modifiers:
@@ -154,12 +163,20 @@ def export_mesh_object(file, scene, obj, bones=None, custom={}):
 			amtmods.append((mod, mod.show_viewport))
 			mod.show_viewport = False
 
-	mesh = obj.to_mesh(scene, True, 'PREVIEW')
-	mesh.transform(obj.matrix_world)
-	mesh.calc_tessface()
-	mesh.calc_normals()
-	export_mesh(file, mesh, obj.data.name, obj.vertex_groups, bones, custom)
-	bpy.data.meshes.remove(mesh)
+	if obj.data.shape_keys:
+		for shape_key in obj.data.shape_keys.key_blocks:
+			shape_key.mute = True
+			shape_key.value = 1
+		for shape_key in obj.data.shape_keys.key_blocks:
+			if shape_key == obj.data.shape_keys.reference_key:
+				shape_name = obj.data.name
+			else:
+				shape_name = obj.data.name + "+" + shape_key.name
+			shape_key.mute = False
+			export_object_imp(file, scene, obj, shape_name, obj.vertex_groups, bones, custom, apply_matrix)
+			shape_key.mute = True
+	else:
+		export_object_imp(file, scene, obj, obj.data.name, obj.vertex_groups, bones, custom, apply_matrix)
 
 	# restore armature modifiers
 	for mod, show_viewport in amtmods:
@@ -229,36 +246,29 @@ def export_actions(file, scene, obj, bones):
 	if obj.animation_data: obj.animation_data.action = old_action
 	scene.frame_set(old_time)
 
-def export_comment(file, obj):
-	if "comment" in bpy.data.texts:
-		file.write("\ncomment\n")
-		file.write(bpy.data.texts["comment"].as_string())
-
-def export_object(file, scene, obj):
-	file.write("# Inter-Quake Export\n")
-	amtobj = obj.find_armature()
-	bones = amtobj and export_armature(file, amtobj, amtobj.data)
-	custom = {}
-	export_mesh_object(file, scene, obj, bones, custom)
-	if amtobj: export_actions(file, scene, amtobj, bones)
-	export_comment(file, obj)
-
 # ---
 
-def export_object_list(context, list):
-	for obj in list:
-		if obj.type == 'MESH':
-			filename = obj.name + ".iqe"
-			print("exporting object:", filename)
-			file = open(filename, "w")
-			export_object(file, context.scene, obj)
-			file.close()
-
-def export_iqe(context, filename):
+def export_object_list(filename, context, list):
 	file = open(filename, "w")
-	for obj in context.selected_objects:
-		if obj.type == 'MESH':
-			export_object(file, context.scene, obj)
+	file.write("# Inter-Quake Export\n")
+
+	amt, bones, custom = None, None, {}
+
+	for obj in list:
+		if obj.type == 'ARMATURE':
+			amt = obj
+			break
+
+	if amt:
+		bones = export_armature(file, amt, amt.data)
+
+	for obj in list:
+		if obj.type == 'MESH' and obj.find_armature() == amt:
+			export_object(file, context.scene, obj, bones, custom, apply_matrix=True)
+
+	if amt:
+		export_actions(file, context.scene, amt, bones)
+
 	file.close()
 
 class ExportIQE(bpy.types.Operator, ExportHelper):
@@ -268,7 +278,7 @@ class ExportIQE(bpy.types.Operator, ExportHelper):
 	filename_ext = ".iqe"
 
 	def execute(self, context):
-		export_iqe(context, self.properties.filepath)
+		export_object_list(self.properties.filepath, context, context.selected_objects)
 		return {'FINISHED'}
 
 def menu_func(self, context):
@@ -284,4 +294,5 @@ def unregister():
 
 if __name__ == "__main__":
 	register()
-	export_object_list(bpy.context, bpy.context.scene.objects)
+	if len(sys.argv) > 3 and sys.argv[-2] == '--':
+		export_object_list(sys.argv[-1], bpy.context, bpy.context.scene.objects)
