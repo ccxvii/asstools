@@ -1,5 +1,6 @@
 #include <stdio.h>
 #include <stdlib.h>
+#include <string.h>
 #include <ctype.h>
 #include <assert.h>
 #include <math.h>
@@ -802,8 +803,6 @@ float measuremodel(float center[3])
  * Boring UI and GLUT hooks.
  */
 
-#include "getopt.c"
-
 #define DIABLO 36.8698976	// 4:3 isometric view
 #define ISOMETRIC 35.264	// true isometric view
 #define DIMETRIC 30		// 2:1 'isometric' as seen in pixel art
@@ -813,8 +812,8 @@ int doplane = 0;
 int doalpha = 0;
 int dowire = 0;
 int dotexture = 1;
-int dobackface = 1;
-int dotwosided = 1;
+int dobackface = 0;
+int dotwosided = 0;
 int doperspective = 1;
 int doskeleton = 0;
 int doplay = 0;
@@ -1144,53 +1143,15 @@ void display(void)
 	if (i) fprintf(stderr, "opengl error: %d\n", i);
 }
 
-void usage(void)
-{
-	fprintf(stderr, "usage: assview [-geometry WxH] [options] asset.dae\n");
-	fprintf(stderr, "\t-i\tdimetric (2:1) camera\n");
-	fprintf(stderr, "\t-I\ttrue isometric camera\n");
-	fprintf(stderr, "\t-a\talpha transparency mode; use more times for higher quality.\n");
-	fprintf(stderr, "\t-b\tdon't render backfaces\n");
-	fprintf(stderr, "\t-g\trender ground plane\n");
-	fprintf(stderr, "\t-l\tone-sided lighting\n");
-	fprintf(stderr, "\t-t\tdon't render textures\n");
-	fprintf(stderr, "\t-w\trender wireframe\n");
-	fprintf(stderr, "\t-c r,g,b\tbackground color\n");
-	fprintf(stderr, "\t-r n\trotate camera n degrees (yaw)\n");
-	fprintf(stderr, "\t-p n\tpitch camera n degrees\n");
-	fprintf(stderr, "\t-z n\tzoom camera n times\n");
-	fprintf(stderr, "\t-f n\trender animation at frame n\n");
-	exit(1);
-}
-
 int main(int argc, char **argv)
 {
 	float clearcolor[4] = { 0.22, 0.22, 0.22, 1.0 };
 	float zoom = 1;
-	int c;
 
 	glutInitWindowPosition(50, 50+24);
 	glutInitWindowSize(screenw, screenh);
 	glutInit(&argc, argv);
 	glutInitDisplayMode(GLUT_RGB | GLUT_DOUBLE | GLUT_DEPTH | GLUT_MULTISAMPLE);
-
-	while ((c = getopt(argc, argv, "iIgtawblc:r:p:z:f:")) != -1) {
-		switch (c) {
-		case 'i': doperspective = 0; camera.yaw = 45; camera.pitch = -DIMETRIC; break;
-		case 'I': doperspective = 0; camera.yaw = 45; camera.pitch = -ISOMETRIC; break;
-		case 'g': doplane = 1; break;
-		case 't': dotexture = 0; break;
-		case 'a': doalpha++; break;
-		case 'w': dowire = 1; break;
-		case 'b': dobackface = 0; break;
-		case 'l': dotwosided = 0; break;
-		case 'c': sscanf(optarg, "%g,%g,%g", clearcolor+0, clearcolor+1, clearcolor+2); break;
-		case 'r': camera.yaw = atof(optarg); break;
-		case 'p': camera.pitch = atof(optarg); break;
-		case 'z': zoom = atof(optarg); break;
-		default: usage(); break;
-		}
-	}
 
 	glutCreateWindow("IQE Viewer");
 	screenw = glutGet(GLUT_WINDOW_WIDTH);
@@ -1204,7 +1165,7 @@ int main(int argc, char **argv)
 
 	initchecker();
 
-	if (optind < argc) {
+	if (argc > 1) {
 		strcpy(basedir, argv[1]);
 		char *p = strrchr(basedir, '/');
 		if (!p) p = strrchr(basedir, '\\');
@@ -1212,7 +1173,7 @@ int main(int argc, char **argv)
 
 		glutSetWindowTitle(argv[1]);
 
-		loadmodel(argv[optind]);
+		loadmodel(argv[1]);
 
 		float radius = measuremodel(camera.center);
 		camera.distance = radius * 2 * zoom;

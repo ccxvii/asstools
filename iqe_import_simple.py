@@ -114,13 +114,14 @@ def import_mesh(filename):
 			faces.append((verts, mat, img))
 
 	vertex_map = {}
-	out_vp, out_f, out_ft, out_fc, out_fm = [], [], [], [], []
+	out_vp, out_vn, out_f, out_ft, out_fc, out_fm = [], [], [], [], [], []
 	for verts, mat, img in faces:
 		f, ft, fc = [], [], []
 		for p, n, t, c in verts:
 			if not (p,n) in vertex_map:
 				vertex_map[(p,n)] = len(out_vp)
 				out_vp.append(p)
+				out_vn.append(n)
 			f.append(vertex_map[p,n])
 			ft.append(t)
 			fc.append(c)
@@ -169,6 +170,9 @@ def import_mesh(filename):
 		mat.use_vertex_color_paint = has_vc
 
 	mesh.update()
+
+	# Must set normals after mesh.update() or they will be recalculated
+	mesh.vertices.foreach_set("normal", unpack_list(out_vn))
 
 	bpy.context.scene.objects.link(obj)
 	bpy.context.scene.objects.active = obj

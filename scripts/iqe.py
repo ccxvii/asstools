@@ -7,7 +7,7 @@
 #	no custom vertex array types
 #	no comment sections
 
-import sys, shlex, fnmatch, os.path
+import sys, shlex, fnmatch, os.path, math
 
 class Mesh:
 	def __init__(self, name):
@@ -271,7 +271,7 @@ def annotate_model(model, annots):
 
 def backface_mesh(mesh):
 	print >>sys.stderr, "backface mesh:", mesh.name
-	mirror = Mesh(mesh.name + ",backface")
+	mirror = Mesh(mesh.name + ".back")
 	mirror.material = mesh.material
 	mirror.positions = mesh.positions
 	mirror.texcoords = mesh.texcoords
@@ -298,6 +298,58 @@ def backface_model(model):
 			mesh.material.remove('twosided')
 			extra.append(backface_mesh(mesh))
 	model.meshes += extra
+
+# Normal thief
+
+def normalize(x, y, z):
+	d = math.sqrt(x*x + y*y + z*z)
+	if d >= 0.001:
+		return x/d, y/d, z/d
+	return 0, 0, 1
+
+def normal_thief_grass(mesh):
+	mesh.normals = [(0,0,1)] * len(mesh.normals)
+
+def normal_thief_tree(mesh):
+	bboxmin = [1e10, 1e10, 1e10]
+	bboxmax = [-1e10, -1e10, -1e10]
+	for x,y,z in mesh.positions:
+		bboxmin[0] = min(x, bboxmin[0])
+		bboxmin[1] = min(y, bboxmin[1])
+		bboxmin[2] = min(z, bboxmin[2])
+		bboxmax[0] = max(x, bboxmax[0])
+		bboxmax[1] = max(y, bboxmax[1])
+		bboxmax[2] = max(z, bboxmax[2])
+	cx = (bboxmin[0] + bboxmax[0]) / 2
+	cy = (bboxmin[1] + bboxmax[1]) / 2
+	# cz = (bboxmin[2] + bboxmax[2]) / 2
+	cz = bboxmin[2]
+	for i in range(len(mesh.positions)):
+		x, y, z = mesh.positions[i]
+		mesh.normals[i] = normalize(x-cx, y-cy, z-cz)
+
+def normal_thief_backface(mesh):
+	mirror = []
+	for face in mesh.faces:
+		if len(face) == 3:
+			a, b, c = face
+			mirror.append((c,b,a))
+		else:
+			a, b, c, d = face
+			mirror.append((d,c,b,a))
+	mesh.faces += mirror
+
+def normal_thief(model, remove_tags=False, backface=True):
+	for mesh in model.meshes:
+		if 'n:grass' in mesh.material:
+			normal_thief_grass(mesh)
+			if remove_tags: mesh.material.remove('n:grass')
+		if 'n:tree' in mesh.material:
+			normal_thief_tree(mesh)
+			if remove_tags: mesh.material.remove('n:tree')
+		if backface and 'twosided' in mesh.material:
+			normal_thief_backface(mesh)
+			mesh.material.remove('twosided')
 
 # Apply global scale to all mesh coords
 
