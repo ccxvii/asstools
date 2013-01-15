@@ -1,6 +1,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <ctype.h>
+#include <assert.h>
 #include <math.h>
 
 #ifdef __APPLE__
@@ -26,6 +27,199 @@
 #define MIN(a,b) ((a) < (b) ? (a) : (b))
 #define MAX(a,b) ((a) > (b) ? (a) : (b))
 #define CLAMP(x,a,b) MIN(MAX(x,a),b)
+
+/*
+ * Some vector and matrix math.
+ */
+
+typedef float vec3[3];
+typedef float vec4[4];
+typedef float mat4[16];
+
+struct pose {
+	vec3 position;
+	vec4 rotation;
+	vec3 scale;
+};
+
+#define A(row,col) a[(col<<2)+row]
+#define B(row,col) b[(col<<2)+row]
+#define M(row,col) m[(col<<2)+row]
+
+void mat_copy(mat4 p, const mat4 m)
+{
+	memcpy(p, m, sizeof(mat4));
+}
+
+void mat_mul(mat4 m, const mat4 a, const mat4 b)
+{
+	int i;
+	for (i = 0; i < 4; i++) {
+		const float ai0=A(i,0), ai1=A(i,1), ai2=A(i,2), ai3=A(i,3);
+		M(i,0) = ai0 * B(0,0) + ai1 * B(1,0) + ai2 * B(2,0) + ai3 * B(3,0);
+		M(i,1) = ai0 * B(0,1) + ai1 * B(1,1) + ai2 * B(2,1) + ai3 * B(3,1);
+		M(i,2) = ai0 * B(0,2) + ai1 * B(1,2) + ai2 * B(2,2) + ai3 * B(3,2);
+		M(i,3) = ai0 * B(0,3) + ai1 * B(1,3) + ai2 * B(2,3) + ai3 * B(3,3);
+	}
+}
+
+void mat_invert(mat4 out, const mat4 m)
+{
+	mat4 inv;
+	float det;
+	int i;
+
+	inv[0] = m[5]*m[10]*m[15] - m[5]*m[11]*m[14] - m[9]*m[6]*m[15] +
+		m[9]*m[7]*m[14] + m[13]*m[6]*m[11] - m[13]*m[7]*m[10];
+	inv[4] = -m[4]*m[10]*m[15] + m[4]*m[11]*m[14] + m[8]*m[6]*m[15] -
+		m[8]*m[7]*m[14] - m[12]*m[6]*m[11] + m[12]*m[7]*m[10];
+	inv[8] = m[4]*m[9]*m[15] - m[4]*m[11]*m[13] - m[8]*m[5]*m[15] +
+		m[8]*m[7]*m[13] + m[12]*m[5]*m[11] - m[12]*m[7]*m[9];
+	inv[12] = -m[4]*m[9]*m[14] + m[4]*m[10]*m[13] + m[8]*m[5]*m[14] -
+		m[8]*m[6]*m[13] - m[12]*m[5]*m[10] + m[12]*m[6]*m[9];
+	inv[1] = -m[1]*m[10]*m[15] + m[1]*m[11]*m[14] + m[9]*m[2]*m[15] -
+		m[9]*m[3]*m[14] - m[13]*m[2]*m[11] + m[13]*m[3]*m[10];
+	inv[5] = m[0]*m[10]*m[15] - m[0]*m[11]*m[14] - m[8]*m[2]*m[15] +
+		m[8]*m[3]*m[14] + m[12]*m[2]*m[11] - m[12]*m[3]*m[10];
+	inv[9] = -m[0]*m[9]*m[15] + m[0]*m[11]*m[13] + m[8]*m[1]*m[15] -
+		m[8]*m[3]*m[13] - m[12]*m[1]*m[11] + m[12]*m[3]*m[9];
+	inv[13] = m[0]*m[9]*m[14] - m[0]*m[10]*m[13] - m[8]*m[1]*m[14] +
+		m[8]*m[2]*m[13] + m[12]*m[1]*m[10] - m[12]*m[2]*m[9];
+	inv[2] = m[1]*m[6]*m[15] - m[1]*m[7]*m[14] - m[5]*m[2]*m[15] +
+		m[5]*m[3]*m[14] + m[13]*m[2]*m[7] - m[13]*m[3]*m[6];
+	inv[6] = -m[0]*m[6]*m[15] + m[0]*m[7]*m[14] + m[4]*m[2]*m[15] -
+		m[4]*m[3]*m[14] - m[12]*m[2]*m[7] + m[12]*m[3]*m[6];
+	inv[10] = m[0]*m[5]*m[15] - m[0]*m[7]*m[13] - m[4]*m[1]*m[15] +
+		m[4]*m[3]*m[13] + m[12]*m[1]*m[7] - m[12]*m[3]*m[5];
+	inv[14] = -m[0]*m[5]*m[14] + m[0]*m[6]*m[13] + m[4]*m[1]*m[14] -
+		m[4]*m[2]*m[13] - m[12]*m[1]*m[6] + m[12]*m[2]*m[5];
+	inv[3] = -m[1]*m[6]*m[11] + m[1]*m[7]*m[10] + m[5]*m[2]*m[11] -
+		m[5]*m[3]*m[10] - m[9]*m[2]*m[7] + m[9]*m[3]*m[6];
+	inv[7] = m[0]*m[6]*m[11] - m[0]*m[7]*m[10] - m[4]*m[2]*m[11] +
+		m[4]*m[3]*m[10] + m[8]*m[2]*m[7] - m[8]*m[3]*m[6];
+	inv[11] = -m[0]*m[5]*m[11] + m[0]*m[7]*m[9] + m[4]*m[1]*m[11] -
+		m[4]*m[3]*m[9] - m[8]*m[1]*m[7] + m[8]*m[3]*m[5];
+	inv[15] = m[0]*m[5]*m[10] - m[0]*m[6]*m[9] - m[4]*m[1]*m[10] +
+		m[4]*m[2]*m[9] + m[8]*m[1]*m[6] - m[8]*m[2]*m[5];
+
+	det = m[0] * inv[0] + m[1] * inv[4] + m[2] * inv[8] + m[3] * inv[12];
+	assert (det != 0);
+	det = 1.0 / det;
+	for (i = 0; i < 16; i++)
+		out[i] = inv[i] * det;
+}
+
+
+void mat_from_pose(mat4 m, const vec3 t, const vec4 q, const vec3 s)
+{
+	float x2 = q[0] + q[0];
+	float y2 = q[1] + q[1];
+	float z2 = q[2] + q[2];
+	{
+		float xx2 = q[0] * x2;
+		float yy2 = q[1] * y2;
+		float zz2 = q[2] * z2;
+		M(0,0) = 1 - yy2 - zz2;
+		M(1,1) = 1 - xx2 - zz2;
+		M(2,2) = 1 - xx2 - yy2;
+	}
+	{
+		float yz2 = q[1] * z2;
+		float wx2 = q[3] * x2;
+		M(2,1) = yz2 + wx2;
+		M(1,2) = yz2 - wx2;
+	}
+	{
+		float xy2 = q[0] * y2;
+		float wz2 = q[3] * z2;
+		M(1,0) = xy2 + wz2;
+		M(0,1) = xy2 - wz2;
+	}
+	{
+		float xz2 = q[0] * z2;
+		float wy2 = q[3] * y2;
+		M(0,2) = xz2 + wy2;
+		M(2,0) = xz2 - wy2;
+	}
+
+	m[0] *= s[0]; m[4] *= s[1]; m[8] *= s[2];
+	m[1] *= s[0]; m[5] *= s[1]; m[9] *= s[2];
+	m[2] *= s[0]; m[6] *= s[1]; m[10] *= s[2];
+
+	M(0,3) = t[0];
+	M(1,3) = t[1];
+	M(2,3) = t[2];
+
+	M(3,0) = 0;
+	M(3,1) = 0;
+	M(3,2) = 0;
+	M(3,3) = 1;
+}
+
+#undef A
+#undef B
+#undef M
+
+void vec_scale(vec3 p, const vec3 v, float s)
+{
+	p[0] = v[0] * s;
+	p[1] = v[1] * s;
+	p[2] = v[2] * s;
+}
+
+void vec_add(vec3 p, const vec3 a, const vec3 b)
+{
+	p[0] = a[0] + b[0];
+	p[1] = a[1] + b[1];
+	p[2] = a[2] + b[2];
+}
+
+void mat_vec_mul(vec3 p, const mat4 m, const vec3 v)
+{
+	assert(p != v);
+	p[0] = m[0] * v[0] + m[4] * v[1] + m[8] * v[2] + m[12];
+	p[1] = m[1] * v[0] + m[5] * v[1] + m[9] * v[2] + m[13];
+	p[2] = m[2] * v[0] + m[6] * v[1] + m[10] * v[2] + m[14];
+}
+
+void mat_vec_mul_n(vec3 p, const mat4 m, const vec3 v)
+{
+	assert(p != v);
+	p[0] = m[0] * v[0] + m[4] * v[1] + m[8] * v[2];
+	p[1] = m[1] * v[0] + m[5] * v[1] + m[9] * v[2];
+	p[2] = m[2] * v[0] + m[6] * v[1] + m[10] * v[2];
+}
+
+static void calc_mul_matrix(mat4 *skin_matrix, mat4 *abs_pose_matrix, mat4 *inv_bind_matrix, int count)
+{
+	int i;
+	for (i = 0; i < count; i++)
+		mat_mul(skin_matrix[i], abs_pose_matrix[i], inv_bind_matrix[i]);
+}
+
+static void calc_inv_matrix(mat4 *inv_bind_matrix, mat4 *abs_bind_matrix, int count)
+{
+	int i;
+	for (i = 0; i < count; i++)
+		mat_invert(inv_bind_matrix[i], abs_bind_matrix[i]);
+}
+
+static void calc_abs_matrix(mat4 *abs_pose_matrix, mat4 *pose_matrix, int *parent, int count)
+{
+	int i;
+	for (i = 0; i < count; i++)
+		if (parent[i] >= 0)
+			mat_mul(abs_pose_matrix[i], abs_pose_matrix[parent[i]], pose_matrix[i]);
+		else
+			mat_copy(abs_pose_matrix[i], pose_matrix[i]);
+}
+
+static void calc_matrix_from_pose(mat4 *pose_matrix, struct pose *pose, int count)
+{
+	int i;
+	for (i = 0; i < count; i++)
+		mat_from_pose(pose_matrix[i], pose[i].position, pose[i].rotation, pose[i].scale);
+}
 
 /*
  * Use Sean Barrett's excellent stb_image to load textures.
@@ -89,8 +283,8 @@ unsigned int loadtexture(char *filename)
 	glTexParameteri(GL_TEXTURE_2D, GL_GENERATE_MIPMAP, GL_TRUE);
 	glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
 	glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR_MIPMAP_LINEAR);
-	glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP);
-	glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP);
+	glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_REPEAT);
+	glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_REPEAT);
 	glTexImage2D(GL_TEXTURE_2D, 0, intfmt, w, h, 0, fmt, GL_UNSIGNED_BYTE, image);
 	//glGenerateMipmap(GL_TEXTURE_2D);
 
@@ -130,6 +324,7 @@ unsigned int loadmaterial(char *material)
 
 #define IQE_MAGIC "# Inter-Quake Export"
 #define MAXMESH 4096
+#define MAXBONE 256
 
 struct floatarray {
 	int len, cap;
@@ -146,13 +341,43 @@ struct mesh {
 	int first, count;
 };
 
+struct anim {
+	char *name;
+	int len, cap;
+	struct frame *data;
+	struct anim *next, *prev;
+};
+
+struct frame {
+	struct pose pose[MAXBONE];
+};
+
 static struct floatarray position = { 0, 0, NULL };
 static struct floatarray normal = { 0, 0, NULL };
 static struct floatarray texcoord = { 0, 0, NULL };
+static struct intarray blendindex = { 0, 0, NULL };
+static struct floatarray blendweight = { 0, 0, NULL };
 static struct intarray element = { 0, 0, NULL };
 
-static struct mesh meshbuf[MAXMESH];
+static float *aposition = NULL;
+static float *anormal = NULL;
+
+static struct mesh mesh[MAXMESH];
 static int mesh_count = 0;
+
+static int bone_count = 0;
+static int bone_parent[MAXBONE];
+static char *bone_name[MAXBONE];
+static struct pose bindpose[MAXBONE];
+
+static struct anim *anim = NULL;
+
+static mat4 loc_bind_matrix[MAXBONE];
+static mat4 abs_bind_matrix[MAXBONE];
+static mat4 inv_bind_matrix[MAXBONE];
+static mat4 loc_pose_matrix[MAXBONE];
+static mat4 abs_pose_matrix[MAXBONE];
+static mat4 skin_matrix[MAXBONE];
 
 static float bboxmin[3], bboxmax[3];
 
@@ -174,6 +399,15 @@ static inline void pushint(struct intarray *a, int v)
 	a->data[a->len++] = v;
 }
 
+static inline struct pose *newframe(struct anim *a)
+{
+	if (a->len + 1 >= a->cap) {
+		a->cap = 128 + a->cap * 2;
+		a->data = realloc(a->data, a->cap * sizeof(*a->data));
+	}
+	return a->data[a->len++].pose;
+}
+
 static void addposition(float x, float y, float z)
 {
 	pushfloat(&position, x);
@@ -192,6 +426,19 @@ static void addnormal(float x, float y, float z)
 	pushfloat(&normal, x);
 	pushfloat(&normal, y);
 	pushfloat(&normal, z);
+}
+
+static void addblend(int a, int b, int c, int d, float x, float y, float z, float w)
+{
+	float total = x + y + z + w;
+	pushint(&blendindex, a);
+	pushint(&blendindex, b);
+	pushint(&blendindex, c);
+	pushint(&blendindex, d);
+	pushfloat(&blendweight, x / total);
+	pushfloat(&blendweight, y / total);
+	pushfloat(&blendweight, z / total);
+	pushfloat(&blendweight, w / total);
 }
 
 static void addtriangle(int a, int b, int c)
@@ -248,9 +495,13 @@ static void loadmodel(char *filename)
 	FILE *fp;
 	char line[256];
 	int material = 0;
+	int first = 0;
 	int fm = 0;
-	struct mesh *mesh = NULL;
 	char *s, *sp;
+	int i, k;
+
+	struct pose *pose = bindpose;
+	int pose_count = 0;
 
 	fprintf(stderr, "loading iqe model '%s'\n", filename);
 
@@ -288,8 +539,8 @@ static void loadmodel(char *filename)
 			continue;
 		} else if (!strcmp(s, "vp")) {
 			float x = parsefloat(&sp, 0);
-			float z = -parsefloat(&sp, 0);
 			float y = parsefloat(&sp, 0);
+			float z = parsefloat(&sp, 0);
 			bboxmin[0] = MIN(bboxmin[0], x); bboxmax[0] = MAX(bboxmax[0], x);
 			bboxmin[1] = MIN(bboxmin[1], y); bboxmax[1] = MAX(bboxmax[1], y);
 			bboxmin[2] = MIN(bboxmin[2], z); bboxmax[2] = MAX(bboxmax[2], z);
@@ -300,9 +551,19 @@ static void loadmodel(char *filename)
 			addtexcoord(x, y);
 		} else if (!strcmp(s, "vn")) {
 			float x = parsefloat(&sp, 0);
-			float z = -parsefloat(&sp, 0);
 			float y = parsefloat(&sp, 0);
+			float z = parsefloat(&sp, 0);
 			addnormal(x, y, z);
+		} else if (!strcmp(s, "vb")) {
+			int a = parseint(&sp, 0);
+			float x = parsefloat(&sp, 1);
+			int b = parseint(&sp, 0);
+			float y = parsefloat(&sp, 0);
+			int c = parseint(&sp, 0);
+			float z = parsefloat(&sp, 0);
+			int d = parseint(&sp, 0);
+			float w = parsefloat(&sp, 0);
+			addblend(a, b, c, d, x, y, z, w);
 		} else if (!strcmp(s, "fm")) {
 			int x = parseint(&sp, 0);
 			int y = parseint(&sp, 0);
@@ -321,43 +582,177 @@ static void loadmodel(char *filename)
 				y = z;
 				z = parseint(&sp, -1);
 			}
-		} else if (!strcmp(s, "mesh")) {
-			if (mesh) {
-				mesh->count = element.len - mesh->first;
-				if (mesh->count == 0)
-					mesh_count--;
+		} else if (!strcmp(s, "joint")) {
+			if (bone_count < MAXBONE) {
+				bone_name[bone_count] = strdup(parsestring(&sp));
+				bone_parent[bone_count] = parseint(&sp, -1);
+				bone_count++;
 			}
-			mesh = &meshbuf[mesh_count++];
-			mesh->texture = material;
-			mesh->first = element.len;
-			mesh->count = 0;
+		} else if (!strcmp(s, "pq")) {
+			if (pose_count < MAXBONE) {
+				pose[pose_count].position[0] = parsefloat(&sp, 0);
+				pose[pose_count].position[1] = parsefloat(&sp, 0);
+				pose[pose_count].position[2] = parsefloat(&sp, 0);
+				pose[pose_count].rotation[0] = parsefloat(&sp, 0);
+				pose[pose_count].rotation[1] = parsefloat(&sp, 0);
+				pose[pose_count].rotation[2] = parsefloat(&sp, 0);
+				pose[pose_count].rotation[3] = parsefloat(&sp, 1);
+				pose[pose_count].scale[0] = parsefloat(&sp, 1);
+				pose[pose_count].scale[1] = parsefloat(&sp, 1);
+				pose[pose_count].scale[2] = parsefloat(&sp, 1);
+				pose_count++;
+			}
+		} else if (!strcmp(s, "animation")) {
+			struct anim *head = anim;
+			anim = malloc(sizeof(*anim));
+			anim->name = strdup(parsestring(&sp));
+			anim->len = anim->cap = 0;
+			anim->data = NULL;
+			if (head) head->prev = anim;
+			anim->next = head;
+			anim->prev = NULL;
+		} else if (!strcmp(s, "frame")) {
+			pose = newframe(anim);
+			pose_count = 0;
+		} else if (!strcmp(s, "mesh")) {
+			if (element.len > first) {
+				mesh[mesh_count].first = first;
+				mesh[mesh_count].count = element.len - first;
+				mesh[mesh_count].texture = material;
+				mesh_count++;
+			}
+			first = element.len;
 			fm = position.len / 3;
 		} else if (!strcmp(s, "material")) {
 			s = parsestring(&sp);
 			material = loadmaterial(s);
-			if (mesh) {
-				mesh->texture = material;
-			}
 		}
 	}
 
-	if (mesh) {
-		glBindTexture(GL_TEXTURE_2D, mesh->texture);
-		mesh->count = element.len - mesh->first;
-		if (mesh->count == 0)
-			mesh_count--;
+	if (element.len > first) {
+		mesh[mesh_count].first = first;
+		mesh[mesh_count].count = element.len - first;
+		mesh[mesh_count].texture = material;
+		mesh_count++;
 	}
 
-	if (mesh_count == 0) {
-		mesh = meshbuf;
-		mesh->texture = 0;
-		mesh->first = 0;
-		mesh->count = element.len;
-		mesh_count = 1;
+	if (bone_count > 0) {
+		calc_matrix_from_pose(loc_bind_matrix, bindpose, bone_count);
+		calc_abs_matrix(abs_bind_matrix, loc_bind_matrix, bone_parent, bone_count);
+		calc_inv_matrix(inv_bind_matrix, abs_bind_matrix, bone_count);
 	}
 
-	fprintf(stderr, "\t%d meshes; %d vertices; %d triangles\n",
-			mesh_count, position.len/3, element.len/3);
+	if (bone_count > 0) {
+		for (i = 0; i < bone_count; i++) {
+			float x = abs_bind_matrix[i][12];
+			float y = abs_bind_matrix[i][13];
+			float z = abs_bind_matrix[i][14];
+			bboxmin[0] = MIN(bboxmin[0], x); bboxmax[0] = MAX(bboxmax[0], x);
+			bboxmin[1] = MIN(bboxmin[1], y); bboxmax[1] = MAX(bboxmax[1], y);
+			bboxmin[2] = MIN(bboxmin[2], z); bboxmax[2] = MAX(bboxmax[2], z);
+		}
+		for (k = 0; anim && k < anim->len; k++) {
+			pose = anim->data[k].pose;
+			calc_matrix_from_pose(loc_pose_matrix, pose, bone_count);
+			calc_abs_matrix(abs_pose_matrix, loc_pose_matrix, bone_parent, bone_count);
+			for (i = 0; i < bone_count; i++) {
+				float x = abs_pose_matrix[i][12];
+				float y = abs_pose_matrix[i][13];
+				float z = abs_pose_matrix[i][14];
+				bboxmin[0] = MIN(bboxmin[0], x); bboxmax[0] = MAX(bboxmax[0], x);
+				bboxmin[1] = MIN(bboxmin[1], y); bboxmax[1] = MAX(bboxmax[1], y);
+				bboxmin[2] = MIN(bboxmin[2], z); bboxmax[2] = MAX(bboxmax[2], z);
+			}
+		}
+		memcpy(abs_pose_matrix, abs_bind_matrix, sizeof abs_pose_matrix);
+	}
+
+	if (mesh_count == 0 && bone_count == 0) {
+		bboxmin[0] = bboxmin[1] = bboxmin[2] = -2;
+		bboxmax[0] = bboxmax[1] = bboxmax[2] = 2;
+	}
+
+	fprintf(stderr, "\t%d meshes; %d vertices; %d triangles; %d bones\n",
+			mesh_count, position.len/3, element.len/3, bone_count);
+}
+
+void animatemodel(struct anim *anim, int frame)
+{
+	struct pose *pose;
+	frame = CLAMP(frame, 0, anim->len-1);
+
+	pose = anim->data[frame].pose;
+	calc_matrix_from_pose(loc_pose_matrix, pose, bone_count);
+	calc_abs_matrix(abs_pose_matrix, loc_pose_matrix, bone_parent, bone_count);
+	calc_mul_matrix(skin_matrix, abs_pose_matrix, inv_bind_matrix, bone_count);
+
+	if (!aposition) aposition = malloc(sizeof(float) * position.len);
+	if (!anormal) anormal = malloc(sizeof(float) * normal.len);
+
+	unsigned int *bi = blendindex.data;
+	float *bw = blendweight.data;
+	float *sp = position.data;
+	float *sn = normal.data;
+	float *dp = aposition;
+	float *dn = anormal;
+	int n = position.len / 3;
+
+	while (n--) {
+		int i;
+		dp[0] = dp[1] = dp[2] = 0;
+		dn[0] = dn[1] = dn[2] = 0;
+		for (i = 0; i < 4; i++) {
+			vec3 tp, tn;
+			mat_vec_mul(tp, skin_matrix[bi[i]], sp);
+			mat_vec_mul_n(tn, skin_matrix[bi[i]], sn);
+			vec_scale(tp, tp, bw[i]);
+			vec_scale(tn, tn, bw[i]);
+			vec_add(dp, dp, tp);
+			vec_add(dn, dn, tn);
+		}
+		bi += 4; bw += 4;
+		sp += 3; sn += 3;
+		dp += 3; dn += 3;
+	}
+}
+
+static int haschildren(int *parent, int count, int x)
+{
+	int i;
+	for (i = x; i < count; i++)
+		if (parent[i] == x)
+			return 1;
+	return 0;
+}
+
+void drawskeleton(void)
+{
+	vec3 x = { 0, 0.1, 0 };
+	int i;
+	glBegin(GL_LINES);
+	for (i = 0; i < bone_count; i++) {
+		float *a = abs_pose_matrix[i];
+		if (bone_parent[i] >= 0) {
+			float *b = abs_pose_matrix[bone_parent[i]];
+			glColor4f(1, 1, 1, 1);
+			glVertex3f(a[12], a[13], a[14]);
+			glVertex3f(b[12], b[13], b[14]);
+		} else {
+			glColor4f(1, 1, 1, 1);
+			glVertex3f(a[12], a[13], a[14]);
+			glColor4f(0, 0, 0, 1);
+			glVertex3f(0, 0, 0);
+		}
+		if (!haschildren(bone_parent, bone_count, i)) {
+			vec3 b;
+			mat_vec_mul(b, abs_pose_matrix[i], x);
+			glColor4f(1, 1, 1, 1);
+			glVertex3f(a[12], a[13], a[14]);
+			glColor4f(0, 0, 0, 1);
+			glVertex3f(b[0], b[1], b[2]);
+		}
+	}
+	glEnd();
 }
 
 void drawmodel(void)
@@ -368,19 +763,19 @@ void drawmodel(void)
 	if (texcoord.len) glEnableClientState(GL_TEXTURE_COORD_ARRAY);
 	if (normal.len) glEnableClientState(GL_NORMAL_ARRAY);
 
-	glVertexPointer(3, GL_FLOAT, 0, position.data);
-	glNormalPointer(GL_FLOAT, 0, normal.data);
+	glVertexPointer(3, GL_FLOAT, 0, aposition ? aposition : position.data);
+	glNormalPointer(GL_FLOAT, 0, anormal ? anormal : normal.data);
 	glTexCoordPointer(2, GL_FLOAT, 0, texcoord.data);
 
 	for (i = 0; i < mesh_count; i++) {
-		if (meshbuf[i].texture > 0) {
+		if (mesh[i].texture > 0) {
 			glColor4f(1, 1, 1, 1);
-			glBindTexture(GL_TEXTURE_2D, meshbuf[i].texture);
+			glBindTexture(GL_TEXTURE_2D, mesh[i].texture);
 		} else {
 			glColor4f(0.9, 0.7, 0.7, 1);
 			glBindTexture(GL_TEXTURE_2D, checker_texture);
 		}
-		glDrawElements(GL_TRIANGLES, meshbuf[i].count, GL_UNSIGNED_INT, element.data + meshbuf[i].first);
+		glDrawElements(GL_TRIANGLES, mesh[i].count, GL_UNSIGNED_INT, element.data + mesh[i].first);
 	}
 
 	glDisableClientState(GL_VERTEX_ARRAY);
@@ -409,6 +804,7 @@ float measuremodel(float center[3])
 
 #include "getopt.c"
 
+#define DIABLO 36.8698976	// 4:3 isometric view
 #define ISOMETRIC 35.264	// true isometric view
 #define DIMETRIC 30		// 2:1 'isometric' as seen in pixel art
 
@@ -420,6 +816,13 @@ int dotexture = 1;
 int dobackface = 1;
 int dotwosided = 1;
 int doperspective = 1;
+int doskeleton = 0;
+int doplay = 0;
+
+unsigned int curframe = 0;
+struct anim *curanim = NULL;
+float curtime = 0;
+int lasttime = 0;
 
 int screenw = 800, screenh = 600;
 int mousex, mousey, mouseleft = 0, mousemiddle = 0, mouseright = 0;
@@ -428,7 +831,7 @@ int gridsize = 3;
 float mindist = 1;
 float maxdist = 10;
 
-float light_position[4] = { -1, 2, 2, 0 };
+float light_position[4] = { -1, -2, 2, 0 };
 
 struct {
 	float distance;
@@ -514,6 +917,7 @@ void keyboard(unsigned char key, int x, int y)
 	case 'f': togglefullscreen(); break;
 	case 'i': doperspective = 0; camera.yaw = 45; camera.pitch = -DIMETRIC; break;
 	case 'I': doperspective = 0; camera.yaw = 45; camera.pitch = -ISOMETRIC; break;
+	case 'D': doperspective = 0; camera.yaw = 45; camera.pitch = -DIABLO; break;
 	case 'p': doperspective = !doperspective; break;
 	case 'g': doplane = !doplane; break;
 	case 't': dotexture = !dotexture; break;
@@ -522,6 +926,31 @@ void keyboard(unsigned char key, int x, int y)
 	case 'w': dowire = !dowire; break;
 	case 'b': dobackface = !dobackface; break;
 	case 'l': dotwosided = !dotwosided; break;
+	case 'k': doskeleton = !doskeleton; break;
+	case ' ': doplay = !doplay; break;
+	case '0': curframe = 0; if (curanim) animatemodel(curanim, curframe); break;
+	case ',': if (curanim) { curframe--; curframe %= curanim->len; animatemodel(curanim, curframe); } break;
+	case '.': if (curanim) { curframe++; curframe %= curanim->len; animatemodel(curanim, curframe); } break;
+	case '<':
+		if (curanim && curanim->prev) {
+			curanim = curanim->prev;
+			curframe = 0;
+			animatemodel(curanim, curframe);
+		}
+		break;
+	case '>':
+		if (curanim && curanim->next) {
+			curanim = curanim->next;
+			curframe = 0;
+			animatemodel(curanim, curframe);
+		}
+		break;
+	}
+
+	if (doplay) {
+		if (!curanim)
+			curanim = anim;
+		lasttime = glutGet(GLUT_ELAPSED_TIME);
 	}
 
 	glutPostRedisplay();
@@ -548,6 +977,10 @@ void display(void)
 	char buf[256];
 	int i;
 
+	int thistime = glutGet(GLUT_ELAPSED_TIME);
+	int timediff = thistime - lasttime;
+	lasttime = thistime;
+
 	glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
 
 	glMatrixMode(GL_PROJECTION);
@@ -559,6 +992,7 @@ void display(void)
 
 	glMatrixMode(GL_MODELVIEW);
 	glLoadIdentity();
+	glRotatef(-90, 1, 0, 0); // Z-up
 
 	glEnable(GL_DEPTH_TEST);
 	glEnable(GL_COLOR_MATERIAL);
@@ -567,10 +1001,17 @@ void display(void)
 	glEnable(GL_LIGHT0);
 	glLightfv(GL_LIGHT0, GL_POSITION, light_position);
 
-	glTranslatef(0, 0, -camera.distance);
+	glTranslatef(0, camera.distance, 0);
 	glRotatef(-camera.pitch, 1, 0, 0);
-	glRotatef(-camera.yaw, 0, 1, 0);
+	glRotatef(-camera.yaw, 0, 0, 1);
 	glTranslatef(-camera.center[0], -camera.center[1], -camera.center[2]);
+
+	if (doplay && curanim) {
+		glutPostRedisplay();
+		curtime = curtime + (timediff / 1000.0) * 30.0;
+		curframe = ((int)curtime) % curanim->len;
+		animatemodel(curanim, curframe);
+	}
 
 	if (dotexture)
 		glEnable(GL_TEXTURE_2D);
@@ -654,13 +1095,17 @@ void display(void)
 		glBegin(GL_LINES);
 		glColor4f(0.4, 0.4, 0.4, 1);
 		for (i = -gridsize; i <= gridsize; i ++) {
-			glVertex3f(i, 0, -gridsize); glVertex3f(i, 0, gridsize);
-			glVertex3f(-gridsize, 0, i); glVertex3f(gridsize, 0, i);
+			glVertex3f(i, -gridsize, 0); glVertex3f(i, gridsize, 0);
+			glVertex3f(-gridsize, i, 0); glVertex3f(gridsize, i, 0);
 		}
 		glEnd();
 	}
 
 	glDisable(GL_DEPTH_TEST);
+
+	if (doskeleton) {
+		drawskeleton();
+	}
 
 	glMatrixMode(GL_PROJECTION);
 	glLoadIdentity();
@@ -670,8 +1115,12 @@ void display(void)
 	glLoadIdentity();
 
 	glColor4f(1, 1, 1, 1);
-	sprintf(buf, "%d meshes; %d vertices; %d faces ", mesh_count, position.len/3, element.len/3);
+	sprintf(buf, "%d meshes; %d vertices; %d faces; %d bones", mesh_count, position.len/3, element.len/3, bone_count);
 	drawstring(8, 18+0, buf);
+	if (curanim) {
+		sprintf(buf, "%s (%03d / %03d)", curanim->name, curframe + 1, curanim->len);
+		drawstring(8, 18+16, buf);
+	}
 
 	if (showhelp) {
 		#define Y(n) 18+40+n*16
@@ -681,10 +1130,12 @@ void display(void)
 		drawstring(8, Y(2), "w - toggle wireframe");
 		drawstring(8, Y(3), "b - toggle backface culling");
 		drawstring(8, Y(4), "l - toggle two-sided lighting");
-		drawstring(8, Y(5), "g - toggle ground plane");
-		drawstring(8, Y(6), "p - toggle orthogonal/perspective camera");
-		drawstring(8, Y(7), "i - set up dimetric camera (2:1)");
-		drawstring(8, Y(8), "I - set up isometric camera");
+		drawstring(8, Y(5), "k - toggle skeleton");
+		drawstring(8, Y(6), "g - toggle ground plane");
+		drawstring(8, Y(7), "p - toggle orthogonal/perspective camera");
+		drawstring(8, Y(8), "D - set up isometric camera (4:3)");
+		drawstring(8, Y(9), "i - set up dimetric camera (2:1)");
+		drawstring(8, Y(10), "I - set up isometric camera (true)");
 	}
 
 	glutSwapBuffers();
@@ -768,6 +1219,9 @@ int main(int argc, char **argv)
 		gridsize = (int)radius + 1;
 		mindist = radius * 0.1;
 		maxdist = radius * 10;
+
+		if (mesh_count == 0 && bone_count > 0)
+			doskeleton = 1;
 	}
 
 	glEnable(GL_MULTISAMPLE);
