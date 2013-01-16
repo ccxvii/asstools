@@ -323,19 +323,16 @@ def normal_thief_grass(mesh):
 	mesh.normals = [(0,0,1)] * len(mesh.normals)
 
 def normal_thief_tree(mesh):
+	cx, cy, cz = 0, 0, 0
 	bboxmin = [1e10, 1e10, 1e10]
 	bboxmax = [-1e10, -1e10, -1e10]
 	for x,y,z in mesh.positions:
-		bboxmin[0] = min(x, bboxmin[0])
-		bboxmin[1] = min(y, bboxmin[1])
-		bboxmin[2] = min(z, bboxmin[2])
-		bboxmax[0] = max(x, bboxmax[0])
-		bboxmax[1] = max(y, bboxmax[1])
-		bboxmax[2] = max(z, bboxmax[2])
-	cx = (bboxmin[0] + bboxmax[0]) / 2
-	cy = (bboxmin[1] + bboxmax[1]) / 2
-	# cz = (bboxmin[2] + bboxmax[2]) / 2
-	cz = bboxmin[2]
+		cx += x
+		cy += y
+		cz += z
+	cx /= len(mesh.positions)
+	cy /= len(mesh.positions)
+	cz /= len(mesh.positions)
 	for i in range(len(mesh.positions)):
 		x, y, z = mesh.positions[i]
 		mesh.normals[i] = normalize(x-cx, y-cy, z-cz)
@@ -353,10 +350,10 @@ def normal_thief_backface(mesh):
 
 def normal_thief(model, remove_tags=False, backface=True):
 	for mesh in model.meshes:
-		if 'n:grass' in mesh.material:
+		if 'grass' in mesh.material:
 			normal_thief_grass(mesh)
 			if remove_tags: mesh.material.remove('n:grass')
-		if 'n:tree' in mesh.material:
+		if 'tree' in mesh.material:
 			normal_thief_tree(mesh)
 			if remove_tags: mesh.material.remove('n:tree')
 		if backface and 'twosided' in mesh.material:
