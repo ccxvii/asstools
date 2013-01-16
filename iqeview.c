@@ -21,10 +21,6 @@
 #define GL_MULTISAMPLE 0x809D
 #endif
 
-#ifndef GL_SAMPLE_ALPHA_TO_COVERAGE
-#define GL_SAMPLE_ALPHA_TO_COVERAGE 0x809E
-#endif
-
 #define MIN(a,b) ((a) < (b) ? (a) : (b))
 #define MAX(a,b) ((a) > (b) ? (a) : (b))
 #define CLAMP(x,a,b) MIN(MAX(x,a),b)
@@ -47,12 +43,12 @@ struct pose {
 #define B(row,col) b[(col<<2)+row]
 #define M(row,col) m[(col<<2)+row]
 
-void mat_copy(mat4 p, const mat4 m)
+static void mat_copy(mat4 p, const mat4 m)
 {
 	memcpy(p, m, sizeof(mat4));
 }
 
-void mat_mul(mat4 m, const mat4 a, const mat4 b)
+static void mat_mul(mat4 m, const mat4 a, const mat4 b)
 {
 	int i;
 	for (i = 0; i < 4; i++) {
@@ -64,7 +60,7 @@ void mat_mul(mat4 m, const mat4 a, const mat4 b)
 	}
 }
 
-void mat_invert(mat4 out, const mat4 m)
+static void mat_invert(mat4 out, const mat4 m)
 {
 	mat4 inv;
 	float det;
@@ -110,8 +106,7 @@ void mat_invert(mat4 out, const mat4 m)
 		out[i] = inv[i] * det;
 }
 
-
-void mat_from_pose(mat4 m, const vec3 t, const vec4 q, const vec3 s)
+static void mat_from_pose(mat4 m, const vec3 t, const vec4 q, const vec3 s)
 {
 	float x2 = q[0] + q[0];
 	float y2 = q[1] + q[1];
@@ -161,21 +156,30 @@ void mat_from_pose(mat4 m, const vec3 t, const vec4 q, const vec3 s)
 #undef B
 #undef M
 
-void vec_scale(vec3 p, const vec3 v, float s)
+static float vec_dist2(const vec3 a, const vec3 b)
+{
+	float d0, d1, d2;
+	d0 = a[0] - b[0];
+	d1 = a[1] - b[1];
+	d2 = a[2] - b[2];
+	return d0 * d0 + d1 * d1 + d2 * d2;
+}
+
+static void vec_scale(vec3 p, const vec3 v, float s)
 {
 	p[0] = v[0] * s;
 	p[1] = v[1] * s;
 	p[2] = v[2] * s;
 }
 
-void vec_add(vec3 p, const vec3 a, const vec3 b)
+static void vec_add(vec3 p, const vec3 a, const vec3 b)
 {
 	p[0] = a[0] + b[0];
 	p[1] = a[1] + b[1];
 	p[2] = a[2] + b[2];
 }
 
-void mat_vec_mul(vec3 p, const mat4 m, const vec3 v)
+static void mat_vec_mul(vec3 p, const mat4 m, const vec3 v)
 {
 	assert(p != v);
 	p[0] = m[0] * v[0] + m[4] * v[1] + m[8] * v[2] + m[12];
@@ -183,7 +187,7 @@ void mat_vec_mul(vec3 p, const mat4 m, const vec3 v)
 	p[2] = m[2] * v[0] + m[6] * v[1] + m[10] * v[2] + m[14];
 }
 
-void mat_vec_mul_n(vec3 p, const mat4 m, const vec3 v)
+static void mat_vec_mul_n(vec3 p, const mat4 m, const vec3 v)
 {
 	assert(p != v);
 	p[0] = m[0] * v[0] + m[4] * v[1] + m[8] * v[2];
@@ -231,10 +235,10 @@ static void calc_matrix_from_pose(mat4 *pose_matrix, struct pose *pose, int coun
 
 char basedir[2000];
 
-unsigned char checker_data[256*256];
-unsigned int checker_texture = 0;
+static unsigned char checker_data[256*256];
+static unsigned int checker_texture = 0;
 
-void initchecker(void)
+static void initchecker(void)
 {
 	int x, y, i = 0;
 	for (y = 0; y < 256; y++) {
@@ -253,7 +257,7 @@ void initchecker(void)
 	glTexImage2D(GL_TEXTURE_2D, 0, 1, 256, 256, 0, GL_LUMINANCE, GL_UNSIGNED_BYTE, checker_data);
 }
 
-void lowerstring(char *s)
+static void lowerstring(char *s)
 {
 	while (*s) { *s = tolower(*s); s++; }
 }
@@ -324,8 +328,50 @@ unsigned int loadmaterial(char *material)
  */
 
 #define IQE_MAGIC "# Inter-Quake Export"
-#define MAXMESH 4096
 #define MAXBONE 256
+
+struct model {
+	struct skel *skel;
+	struct mesh *mesh;
+	struct anim *anim;
+};
+
+struct skel {
+	int count;
+	int parent[MAXBONE];
+	char *name[MAXBONE];
+	struct pose pose[MAXBONE];
+};
+
+struct mesh {
+	int vertex_count;
+	float *position, *normal, *texcoord, *color;
+	float *blendweight;
+	int *blendindex;
+
+	int element_count;
+	int *element;
+
+	int part_count;
+	struct part *part;
+
+	float *aposition, *anormal;
+
+	mat4 abs_bind_matrix[MAXBONE];
+	mat4 inv_bind_matrix[MAXBONE];
+};
+
+struct part {
+	unsigned int material;
+	int first, count;
+};
+
+struct anim {
+	char *name;
+	int len, cap;
+	struct pose **data;
+	struct anim *prev, *next;
+};
 
 struct floatarray {
 	int len, cap;
@@ -334,53 +380,32 @@ struct floatarray {
 
 struct intarray {
 	int len, cap;
-	unsigned int *data;
+	int *data;
 };
 
-struct mesh {
-	unsigned int texture;
-	int first, count;
-};
-
-struct anim {
-	char *name;
+struct partarray {
 	int len, cap;
-	struct frame *data;
-	struct anim *next, *prev;
+	struct part *data;
 };
 
-struct frame {
-	struct pose pose[MAXBONE];
-};
-
+/* global scratch buffers */
 static struct floatarray position = { 0, 0, NULL };
 static struct floatarray normal = { 0, 0, NULL };
 static struct floatarray texcoord = { 0, 0, NULL };
+static struct floatarray color = { 0, 0, NULL };
 static struct intarray blendindex = { 0, 0, NULL };
 static struct floatarray blendweight = { 0, 0, NULL };
 static struct intarray element = { 0, 0, NULL };
+static struct partarray partbuf = { 0, 0, NULL };
 
-static float *aposition = NULL;
-static float *anormal = NULL;
-
-static struct mesh mesh[MAXMESH];
-static int mesh_count = 0;
-
-static int bone_count = 0;
-static int bone_parent[MAXBONE];
-static char *bone_name[MAXBONE];
-static struct pose bindpose[MAXBONE];
-
-static struct anim *anim = NULL;
-
-static mat4 loc_bind_matrix[MAXBONE];
-static mat4 abs_bind_matrix[MAXBONE];
-static mat4 inv_bind_matrix[MAXBONE];
-static mat4 loc_pose_matrix[MAXBONE];
-static mat4 abs_pose_matrix[MAXBONE];
-static mat4 skin_matrix[MAXBONE];
-
-static float bboxmin[3], bboxmax[3];
+static void *duparray(void *data, int count, int size)
+{
+	if (count == 0)
+		return NULL;
+	void *p = malloc(count * size);
+	memcpy(p, data, count * size);
+	return p;
+}
 
 static inline void pushfloat(struct floatarray *a, float v)
 {
@@ -400,13 +425,44 @@ static inline void pushint(struct intarray *a, int v)
 	a->data[a->len++] = v;
 }
 
-static inline struct pose *newframe(struct anim *a)
+static void pushpart(struct partarray *a, int first, int last, int material)
 {
+	/* merge parts if they share materials */
+	if (a->len > 0 && a->data[a->len-1].material == material) {
+		a->data[a->len-1].count += last - first;
+		return;
+	}
+	if (a->len + 1 >= a->cap) {
+		a->cap = 600 + a->cap * 2;
+		a->data = realloc(a->data, a->cap * sizeof(*a->data));
+	}
+	a->data[a->len].first = first;
+	a->data[a->len].count = last - first;
+	a->data[a->len].material = material;
+	a->len++;
+}
+
+static struct anim *pushanim(struct anim *head, char *name)
+{
+	struct anim *anim = malloc(sizeof(struct anim));
+	anim->name = strdup(name);
+	anim->len = anim->cap = 0;
+	anim->data = NULL;
+	if (head) head->prev = anim;
+	anim->next = head;
+	anim->prev = NULL;
+	return anim;
+}
+
+static struct pose *pushframe(struct anim *a, int bone_count)
+{
+	struct pose *pose = malloc(sizeof(struct pose) * bone_count);;
 	if (a->len + 1 >= a->cap) {
 		a->cap = 128 + a->cap * 2;
 		a->data = realloc(a->data, a->cap * sizeof(*a->data));
 	}
-	return a->data[a->len++].pose;
+	a->data[a->len++] = pose;
+	return pose;
 }
 
 static void addposition(float x, float y, float z)
@@ -416,17 +472,25 @@ static void addposition(float x, float y, float z)
 	pushfloat(&position, z);
 }
 
+static void addnormal(float x, float y, float z)
+{
+	pushfloat(&normal, x);
+	pushfloat(&normal, y);
+	pushfloat(&normal, z);
+}
+
 static void addtexcoord(float u, float v)
 {
 	pushfloat(&texcoord, u);
 	pushfloat(&texcoord, v);
 }
 
-static void addnormal(float x, float y, float z)
+static void addcolor(float x, float y, float z, float w)
 {
-	pushfloat(&normal, x);
-	pushfloat(&normal, y);
-	pushfloat(&normal, z);
+	pushfloat(&color, x);
+	pushfloat(&color, y);
+	pushfloat(&color, z);
+	pushfloat(&color, w);
 }
 
 static void addblend(int a, int b, int c, int d, float x, float y, float z, float w)
@@ -491,28 +555,35 @@ static inline int parseint(char **stringp, int def)
 	return *s ? atoi(s) : def;
 }
 
-static void loadmodel(char *filename)
+static struct model *loadmodel(char *filename)
 {
+	static mat4 loc_bind_matrix[MAXBONE];
+
 	FILE *fp;
 	char line[256];
 	int material = 0;
 	int first = 0;
 	int fm = 0;
 	char *s, *sp;
-	int i, k;
 
-	struct pose *pose = bindpose;
+	struct skel *skel = malloc(sizeof *skel);
+	struct mesh *mesh = malloc(sizeof *mesh);
+	struct anim *anim = NULL;
+
 	int pose_count = 0;
+	struct pose *pose;
 
 	fprintf(stderr, "loading iqe model '%s'\n", filename);
 
-	bboxmin[0] = bboxmin[1] = bboxmin[2] = 1e10;
-	bboxmax[0] = bboxmax[1] = bboxmax[2] = -1e10;
+	skel->count = 0;
+	pose = skel->pose;
 
 	position.len = 0;
 	texcoord.len = 0;
 	normal.len = 0;
 	element.len = 0;
+	blendindex.len = 0;
+	blendweight.len = 0;
 
 	fp = fopen(filename, "r");
 	if (!fp) {
@@ -531,65 +602,74 @@ static void loadmodel(char *filename)
 	}
 
 	while (1) {
+		float x, y, z, w;
+		int a, b, c, d;
+
 		if (!fgets(line, sizeof line, fp))
 			break;
+
 		sp = line;
 
 		s = parseword(&sp);
-		if (!s) {
+		if (!s)
 			continue;
-		} else if (!strcmp(s, "vp")) {
-			float x = parsefloat(&sp, 0);
-			float y = parsefloat(&sp, 0);
-			float z = parsefloat(&sp, 0);
-			bboxmin[0] = MIN(bboxmin[0], x); bboxmax[0] = MAX(bboxmax[0], x);
-			bboxmin[1] = MIN(bboxmin[1], y); bboxmax[1] = MAX(bboxmax[1], y);
-			bboxmin[2] = MIN(bboxmin[2], z); bboxmax[2] = MAX(bboxmax[2], z);
-			addposition(x, y, z);
-		} else if (!strcmp(s, "vt")) {
-			float x = parsefloat(&sp, 0);
-			float y = parsefloat(&sp, 0);
-			addtexcoord(x, y);
-		} else if (!strcmp(s, "vn")) {
-			float x = parsefloat(&sp, 0);
-			float y = parsefloat(&sp, 0);
-			float z = parsefloat(&sp, 0);
-			addnormal(x, y, z);
-		} else if (!strcmp(s, "vb")) {
-			int a = parseint(&sp, 0);
-			float x = parsefloat(&sp, 1);
-			int b = parseint(&sp, 0);
-			float y = parsefloat(&sp, 0);
-			int c = parseint(&sp, 0);
-			float z = parsefloat(&sp, 0);
-			int d = parseint(&sp, 0);
-			float w = parsefloat(&sp, 0);
-			addblend(a, b, c, d, x, y, z, w);
-		} else if (!strcmp(s, "fm")) {
-			int x = parseint(&sp, 0);
-			int y = parseint(&sp, 0);
-			int z = parseint(&sp, -1);
-			while (z > -1) {
-				addtriangle(x+fm, y+fm, z+fm);
-				y = z;
-				z = parseint(&sp, -1);
+
+		if (s[0] == 'v' && s[1] != 0 && s[2] == 0) {
+			switch (s[1]) {
+			case 'p':
+				x = parsefloat(&sp, 0);
+				y = parsefloat(&sp, 0);
+				z = parsefloat(&sp, 0);
+				addposition(x, y, z);
+				break;
+
+			case 'n':
+				x = parsefloat(&sp, 0);
+				y = parsefloat(&sp, 0);
+				z = parsefloat(&sp, 0);
+				addnormal(x, y, z);
+				break;
+
+			case 't':
+				x = parsefloat(&sp, 0);
+				y = parsefloat(&sp, 0);
+				addtexcoord(x, y);
+				break;
+
+			case 'c':
+				x = parsefloat(&sp, 0);
+				y = parsefloat(&sp, 0);
+				z = parsefloat(&sp, 0);
+				w = parsefloat(&sp, 1);
+				addcolor(x, y, z, w);
+				break;
+
+			case 'b':
+				a = parseint(&sp, 0);
+				x = parsefloat(&sp, 1);
+				b = parseint(&sp, 0);
+				y = parsefloat(&sp, 0);
+				c = parseint(&sp, 0);
+				z = parsefloat(&sp, 0);
+				d = parseint(&sp, 0);
+				w = parsefloat(&sp, 0);
+				addblend(a, b, c, d, x, y, z, w);
+				break;
 			}
-		} else if (!strcmp(s, "fa")) {
-			int x = parseint(&sp, 0);
-			int y = parseint(&sp, 0);
-			int z = parseint(&sp, -1);
-			while (z > -1) {
-				addtriangle(x, y, z);
-				y = z;
-				z = parseint(&sp, -1);
+		}
+
+		else if (s[0] == 'f' && s[1] == 'm' && s[2] == 0) {
+			a = parseint(&sp, 0);
+			b = parseint(&sp, 0);
+			c = parseint(&sp, -1);
+			while (c > -1) {
+				addtriangle(a+fm, b+fm, c+fm);
+				b = c;
+				c = parseint(&sp, -1);
 			}
-		} else if (!strcmp(s, "joint")) {
-			if (bone_count < MAXBONE) {
-				bone_name[bone_count] = strdup(parsestring(&sp));
-				bone_parent[bone_count] = parseint(&sp, -1);
-				bone_count++;
-			}
-		} else if (!strcmp(s, "pq")) {
+		}
+
+		else if (s[0] == 'p' && s[1] == 'q' && s[2] == 0) {
 			if (pose_count < MAXBONE) {
 				pose[pose_count].position[0] = parsefloat(&sp, 0);
 				pose[pose_count].position[1] = parsefloat(&sp, 0);
@@ -603,100 +683,99 @@ static void loadmodel(char *filename)
 				pose[pose_count].scale[2] = parsefloat(&sp, 1);
 				pose_count++;
 			}
-		} else if (!strcmp(s, "animation")) {
-			struct anim *head = anim;
-			anim = malloc(sizeof(*anim));
-			anim->name = strdup(parsestring(&sp));
-			anim->len = anim->cap = 0;
-			anim->data = NULL;
-			if (head) head->prev = anim;
-			anim->next = head;
-			anim->prev = NULL;
-		} else if (!strcmp(s, "frame")) {
-			pose = newframe(anim);
-			pose_count = 0;
-		} else if (!strcmp(s, "mesh")) {
-			if (element.len > first) {
-				mesh[mesh_count].first = first;
-				mesh[mesh_count].count = element.len - first;
-				mesh[mesh_count].texture = material;
-				mesh_count++;
+		}
+
+		else if (!strcmp(s, "joint")) {
+			if (skel->count < MAXBONE) {
+				skel->name[skel->count] = strdup(parsestring(&sp));
+				skel->parent[skel->count] = parseint(&sp, -1);
+				skel->count++;
 			}
+		}
+
+		else if (!strcmp(s, "animation")) {
+			s = parsestring(&sp);
+			anim = pushanim(anim, s);
+		}
+
+		else if (!strcmp(s, "frame")) {
+			pose = pushframe(anim, skel->count);
+			pose_count = 0;
+		}
+
+		else if (!strcmp(s, "mesh")) {
+			if (element.len > first)
+				pushpart(&partbuf, first, element.len, material);
 			first = element.len;
 			fm = position.len / 3;
-		} else if (!strcmp(s, "material")) {
+		}
+
+		else if (!strcmp(s, "material")) {
 			s = parsestring(&sp);
 			material = loadmaterial(s);
 		}
 	}
 
-	if (element.len > first) {
-		mesh[mesh_count].first = first;
-		mesh[mesh_count].count = element.len - first;
-		mesh[mesh_count].texture = material;
-		mesh_count++;
+	if (element.len > first)
+		pushpart(&partbuf, first, element.len, material);
+
+	if (skel->count > 0) {
+		calc_matrix_from_pose(loc_bind_matrix, skel->pose, skel->count);
+		calc_abs_matrix(mesh->abs_bind_matrix, loc_bind_matrix, skel->parent, skel->count);
+		calc_inv_matrix(mesh->inv_bind_matrix, mesh->abs_bind_matrix, skel->count);
 	}
 
-	if (bone_count > 0) {
-		calc_matrix_from_pose(loc_bind_matrix, bindpose, bone_count);
-		calc_abs_matrix(abs_bind_matrix, loc_bind_matrix, bone_parent, bone_count);
-		calc_inv_matrix(inv_bind_matrix, abs_bind_matrix, bone_count);
-	}
+	mesh->vertex_count = position.len / 3;
+	mesh->position = duparray(position.data, position.len, sizeof(float));
+	mesh->normal = duparray(normal.data, normal.len, sizeof(float));
+	mesh->texcoord = duparray(texcoord.data, texcoord.len, sizeof(float));
+	mesh->color = duparray(color.data, color.len, sizeof(float));
+	mesh->blendindex = duparray(blendindex.data, blendindex.len, sizeof(int));
+	mesh->blendweight = duparray(blendweight.data, blendweight.len, sizeof(float));
+	mesh->aposition = NULL;
+	mesh->anormal = NULL;
 
-	if (bone_count > 0) {
-		for (i = 0; i < bone_count; i++) {
-			float x = abs_bind_matrix[i][12];
-			float y = abs_bind_matrix[i][13];
-			float z = abs_bind_matrix[i][14];
-			bboxmin[0] = MIN(bboxmin[0], x); bboxmax[0] = MAX(bboxmax[0], x);
-			bboxmin[1] = MIN(bboxmin[1], y); bboxmax[1] = MAX(bboxmax[1], y);
-			bboxmin[2] = MIN(bboxmin[2], z); bboxmax[2] = MAX(bboxmax[2], z);
-		}
-		for (k = 0; anim && k < anim->len; k++) {
-			pose = anim->data[k].pose;
-			calc_matrix_from_pose(loc_pose_matrix, pose, bone_count);
-			calc_abs_matrix(abs_pose_matrix, loc_pose_matrix, bone_parent, bone_count);
-			for (i = 0; i < bone_count; i++) {
-				float x = abs_pose_matrix[i][12];
-				float y = abs_pose_matrix[i][13];
-				float z = abs_pose_matrix[i][14];
-				bboxmin[0] = MIN(bboxmin[0], x); bboxmax[0] = MAX(bboxmax[0], x);
-				bboxmin[1] = MIN(bboxmin[1], y); bboxmax[1] = MAX(bboxmax[1], y);
-				bboxmin[2] = MIN(bboxmin[2], z); bboxmax[2] = MAX(bboxmax[2], z);
-			}
-		}
-		memcpy(abs_pose_matrix, abs_bind_matrix, sizeof abs_pose_matrix);
-	}
+	mesh->element_count = element.len;
+	mesh->element = duparray(element.data, element.len, sizeof(int));
 
-	if (mesh_count == 0 && bone_count == 0) {
-		bboxmin[0] = bboxmin[1] = bboxmin[2] = -2;
-		bboxmax[0] = bboxmax[1] = bboxmax[2] = 2;
-	}
+	mesh->part_count = partbuf.len;
+	mesh->part = duparray(partbuf.data, partbuf.len, sizeof(struct part));
 
-	fprintf(stderr, "\t%d meshes; %d vertices; %d triangles; %d bones\n",
-			mesh_count, position.len/3, element.len/3, bone_count);
+	fprintf(stderr, "\t%d batches; %d vertices; %d triangles; %d bones\n",
+			mesh->part_count, mesh->vertex_count, mesh->element_count / 3, skel->count);
+
+	struct model *model = malloc(sizeof *model);
+	model->skel = skel;
+	model->mesh = mesh;
+	model->anim = anim;
+	return model;
 }
 
-void animatemodel(struct anim *anim, int frame)
+static mat4 loc_pose_matrix[MAXBONE];
+static mat4 abs_pose_matrix[MAXBONE];
+static mat4 skin_matrix[MAXBONE];
+
+void animatemodel(struct model *model, struct anim *anim, int frame)
 {
-	struct pose *pose;
+	struct skel *skel = model->skel;
+	struct mesh *mesh = model->mesh;
+
 	frame = CLAMP(frame, 0, anim->len-1);
 
-	pose = anim->data[frame].pose;
-	calc_matrix_from_pose(loc_pose_matrix, pose, bone_count);
-	calc_abs_matrix(abs_pose_matrix, loc_pose_matrix, bone_parent, bone_count);
-	calc_mul_matrix(skin_matrix, abs_pose_matrix, inv_bind_matrix, bone_count);
+	calc_matrix_from_pose(loc_pose_matrix, anim->data[frame], skel->count);
+	calc_abs_matrix(abs_pose_matrix, loc_pose_matrix, skel->parent, skel->count);
+	calc_mul_matrix(skin_matrix, abs_pose_matrix, mesh->inv_bind_matrix, skel->count);
 
-	if (!aposition) aposition = malloc(sizeof(float) * position.len);
-	if (!anormal) anormal = malloc(sizeof(float) * normal.len);
+	if (!mesh->aposition) mesh->aposition = malloc(sizeof(float) * mesh->vertex_count * 3);
+	if (!mesh->anormal) mesh->anormal = malloc(sizeof(float) * mesh->vertex_count * 3);
 
-	unsigned int *bi = blendindex.data;
-	float *bw = blendweight.data;
-	float *sp = position.data;
-	float *sn = normal.data;
-	float *dp = aposition;
-	float *dn = anormal;
-	int n = position.len / 3;
+	int *bi = mesh->blendindex;
+	float *bw = mesh->blendweight;
+	float *sp = mesh->position;
+	float *sn = mesh->normal;
+	float *dp = mesh->aposition;
+	float *dn = mesh->anormal;
+	int n = mesh->vertex_count;
 
 	while (n--) {
 		int i;
@@ -726,15 +805,16 @@ static int haschildren(int *parent, int count, int x)
 	return 0;
 }
 
-void drawskeleton(void)
+void drawskeleton(struct model *model)
 {
+	struct skel *skel = model->skel;
 	vec3 x = { 0, 0.1, 0 };
 	int i;
 	glBegin(GL_LINES);
-	for (i = 0; i < bone_count; i++) {
+	for (i = 0; i < skel->count; i++) {
 		float *a = abs_pose_matrix[i];
-		if (bone_parent[i] >= 0) {
-			float *b = abs_pose_matrix[bone_parent[i]];
+		if (skel->parent[i] >= 0) {
+			float *b = abs_pose_matrix[skel->parent[i]];
 			glColor4f(1, 1, 1, 1);
 			glVertex3f(a[12], a[13], a[14]);
 			glVertex3f(b[12], b[13], b[14]);
@@ -744,7 +824,7 @@ void drawskeleton(void)
 			glColor4f(0, 0, 0, 1);
 			glVertex3f(0, 0, 0);
 		}
-		if (!haschildren(bone_parent, bone_count, i)) {
+		if (!haschildren(skel->parent, skel->count, i)) {
 			vec3 b;
 			mat_vec_mul(b, abs_pose_matrix[i], x);
 			glColor4f(1, 1, 1, 1);
@@ -756,47 +836,84 @@ void drawskeleton(void)
 	glEnd();
 }
 
-void drawmodel(void)
+void drawmodel(struct model *model)
 {
+	struct mesh *mesh = model->mesh;
 	int i;
 
 	glEnableClientState(GL_VERTEX_ARRAY);
-	if (texcoord.len) glEnableClientState(GL_TEXTURE_COORD_ARRAY);
-	if (normal.len) glEnableClientState(GL_NORMAL_ARRAY);
+	if (mesh->normal) glEnableClientState(GL_NORMAL_ARRAY);
+	if (mesh->texcoord) glEnableClientState(GL_TEXTURE_COORD_ARRAY);
+	if (mesh->color) glEnableClientState(GL_COLOR_ARRAY);
 
-	glVertexPointer(3, GL_FLOAT, 0, aposition ? aposition : position.data);
-	glNormalPointer(GL_FLOAT, 0, anormal ? anormal : normal.data);
-	glTexCoordPointer(2, GL_FLOAT, 0, texcoord.data);
+	glVertexPointer(3, GL_FLOAT, 0, mesh->aposition ? mesh->aposition : mesh->position);
+	glNormalPointer(GL_FLOAT, 0, mesh->anormal ? mesh->anormal : mesh->normal);
+	glTexCoordPointer(2, GL_FLOAT, 0, mesh->texcoord);
+	glColorPointer(3, GL_FLOAT, 0, mesh->texcoord);
 
-	for (i = 0; i < mesh_count; i++) {
-		if (mesh[i].texture > 0) {
+	for (i = 0; i < mesh->part_count; i++) {
+		if (mesh->part[i].material > 0) {
 			glColor4f(1, 1, 1, 1);
-			glBindTexture(GL_TEXTURE_2D, mesh[i].texture);
+			glBindTexture(GL_TEXTURE_2D, mesh->part[i].material);
 		} else {
 			glColor4f(0.9, 0.7, 0.7, 1);
 			glBindTexture(GL_TEXTURE_2D, checker_texture);
 		}
-		glDrawElements(GL_TRIANGLES, mesh[i].count, GL_UNSIGNED_INT, element.data + mesh[i].first);
+		glDrawElements(GL_TRIANGLES, mesh->part[i].count, GL_UNSIGNED_INT, mesh->element + mesh->part[i].first);
 	}
 
 	glDisableClientState(GL_VERTEX_ARRAY);
-	glDisableClientState(GL_TEXTURE_COORD_ARRAY);
 	glDisableClientState(GL_NORMAL_ARRAY);
+	glDisableClientState(GL_TEXTURE_COORD_ARRAY);
+	glDisableClientState(GL_COLOR_ARRAY);
 }
 
-float measuremodel(float center[3])
+float measuremodel(struct model *model, float center[3])
 {
-	float dx, dy, dz;
+	struct skel *skel = model->skel;
+	struct mesh *mesh = model->mesh;
+	struct anim *anim;
+	float dist, maxdist = 1;
+	int i, k;
 
-	center[0] = (bboxmin[0] + bboxmax[0]) / 2;
-	center[1] = (bboxmin[1] + bboxmax[1]) / 2;
-	center[2] = (bboxmin[2] + bboxmax[2]) / 2;
+	center[0] = center[1] = center[2] = 0;
+	for (i = 0; i < mesh->vertex_count; i++)
+		vec_add(center, center, mesh->position + i * 3);
+	if (mesh->vertex_count) {
+		center[0] /= mesh->vertex_count;
+		center[1] /= mesh->vertex_count;
+		center[2] /= mesh->vertex_count;
+	}
 
-	dx = MAX(center[0] - bboxmin[0], bboxmax[0] - center[0]);
-	dy = MAX(center[1] - bboxmin[1], bboxmax[1] - center[1]);
-	dz = MAX(center[2] - bboxmin[2], bboxmax[2] - center[2]);
+	for (i = 0; i < mesh->vertex_count; i++) {
+		dist = vec_dist2(center, mesh->position + i * 3);
+		if (dist > maxdist)
+			maxdist = dist;
+	}
 
-	return sqrt(dx*dx + dy*dy + dz*dz);
+	if (skel->count > 0) {
+		for (i = 0; i < skel->count; i++) {
+			dist = vec_dist2(center, mesh->abs_bind_matrix[i] + 12);
+			if (dist > maxdist)
+				maxdist = dist;
+		}
+
+		for (anim = model->anim; anim; anim = anim->next) {
+			for (k = 0; anim && k < anim->len; k++) {
+				calc_matrix_from_pose(loc_pose_matrix, anim->data[k], skel->count);
+				calc_abs_matrix(abs_pose_matrix, loc_pose_matrix, skel->parent, skel->count);
+				for (i = 0; i < skel->count; i++) {
+					dist = vec_dist2(center, abs_pose_matrix[i] + 12);
+					if (dist > maxdist)
+						maxdist = dist;
+				}
+			}
+		}
+
+		memcpy(abs_pose_matrix, mesh->abs_bind_matrix, sizeof abs_pose_matrix);
+	}
+
+	return sqrt(maxdist);
 }
 
 /*
@@ -809,14 +926,14 @@ float measuremodel(float center[3])
 
 int showhelp = 0;
 int doplane = 0;
-int doalpha = 0;
 int dowire = 0;
 int dotexture = 1;
-int dobackface = 0;
-int dotwosided = 0;
+int dobackface = 1;
 int doperspective = 1;
 int doskeleton = 0;
 int doplay = 0;
+
+struct model *model = NULL;
 
 unsigned int curframe = 0;
 struct anim *curanim = NULL;
@@ -920,35 +1037,32 @@ void keyboard(unsigned char key, int x, int y)
 	case 'p': doperspective = !doperspective; break;
 	case 'g': doplane = !doplane; break;
 	case 't': dotexture = !dotexture; break;
-	case 'A': doalpha--; break;
-	case 'a': doalpha++; break;
 	case 'w': dowire = !dowire; break;
 	case 'b': dobackface = !dobackface; break;
-	case 'l': dotwosided = !dotwosided; break;
 	case 'k': doskeleton = !doskeleton; break;
 	case ' ': doplay = !doplay; break;
-	case '0': curframe = 0; if (curanim) animatemodel(curanim, curframe); break;
-	case ',': if (curanim) { curframe--; curframe %= curanim->len; animatemodel(curanim, curframe); } break;
-	case '.': if (curanim) { curframe++; curframe %= curanim->len; animatemodel(curanim, curframe); } break;
+	case '0': curframe = 0; if (curanim) animatemodel(model, curanim, curframe); break;
+	case ',': if (curanim) { curframe--; curframe %= curanim->len; animatemodel(model, curanim, curframe); } break;
+	case '.': if (curanim) { curframe++; curframe %= curanim->len; animatemodel(model, curanim, curframe); } break;
 	case '<':
 		if (curanim && curanim->prev) {
 			curanim = curanim->prev;
 			curframe = 0;
-			animatemodel(curanim, curframe);
+			animatemodel(model, curanim, curframe);
 		}
 		break;
 	case '>':
 		if (curanim && curanim->next) {
 			curanim = curanim->next;
 			curframe = 0;
-			animatemodel(curanim, curframe);
+			animatemodel(model, curanim, curframe);
 		}
 		break;
 	}
 
 	if (doplay) {
 		if (!curanim)
-			curanim = anim;
+			curanim = model->anim;
 		lasttime = glutGet(GLUT_ELAPSED_TIME);
 	}
 
@@ -1009,7 +1123,7 @@ void display(void)
 		glutPostRedisplay();
 		curtime = curtime + (timediff / 1000.0) * 30.0;
 		curframe = ((int)curtime) % curanim->len;
-		animatemodel(curanim, curframe);
+		animatemodel(model, curanim, curframe);
 	}
 
 	if (dotexture)
@@ -1027,61 +1141,10 @@ void display(void)
 	else
 		glEnable(GL_CULL_FACE);
 
-	glLightModeli(GL_LIGHT_MODEL_TWO_SIDE, dotwosided);
-
-	doalpha = CLAMP(doalpha, 0, 4);
-	switch (doalpha) {
-	// No alpha transparency.
-	case 0:
-		drawmodel();
-		break;
-
-	// Alpha test only. Always correct, but aliased and ugly.
-	case 1:
-		glAlphaFunc(GL_GREATER, 0.2);
-		glEnable(GL_ALPHA_TEST);
-		drawmodel();
-		glDisable(GL_ALPHA_TEST);
-		break;
-
-	// Quick-and-dirty hack: render with both test and blend.
-	// Background may leak through depending on drawing order.
-	case 2:
-		glAlphaFunc(GL_GREATER, 0.2);
-		glEnable(GL_ALPHA_TEST);
-		glEnable(GL_BLEND);
-		drawmodel();
-		glDisable(GL_BLEND);
-		glDisable(GL_ALPHA_TEST);
-		break;
-
-	// For best looking alpha blending, render twice.
-	// Solid parts first to fill the depth buffer.
-	// Transparent parts after, with z-write disabled.
-	// Background is safe, but internal blend order may be wrong.
-	case 3:
-		glEnable(GL_ALPHA_TEST);
-		glAlphaFunc(GL_EQUAL, 1);
-		drawmodel();
-
-		glAlphaFunc(GL_LESS, 1);
-		glEnable(GL_BLEND);
-		glDepthMask(GL_FALSE);
-		drawmodel();
-		glDepthMask(GL_TRUE);
-		glDisable(GL_BLEND);
-		glDisable(GL_ALPHA_TEST);
-		break;
-
-	// If we have a multisample buffer, we can get 'perfect' transparency
-	// by using alpha-as-coverage. This does have a few limitations, depending
-	// on the number of samples available you'll get banding or dithering artefacts.
-	case 4:
-		glEnable(GL_SAMPLE_ALPHA_TO_COVERAGE);
-		drawmodel();
-		glDisable(GL_SAMPLE_ALPHA_TO_COVERAGE);
-		break;
-	}
+	glAlphaFunc(GL_GREATER, 0.2);
+	glEnable(GL_ALPHA_TEST);
+	drawmodel(model);
+	glDisable(GL_ALPHA_TEST);
 
 	glDisable(GL_CULL_FACE);
 	glPolygonMode(GL_FRONT_AND_BACK, GL_FILL);
@@ -1103,7 +1166,7 @@ void display(void)
 	glDisable(GL_DEPTH_TEST);
 
 	if (doskeleton) {
-		drawskeleton();
+		drawskeleton(model);
 	}
 
 	glMatrixMode(GL_PROJECTION);
@@ -1114,7 +1177,8 @@ void display(void)
 	glLoadIdentity();
 
 	glColor4f(1, 1, 1, 1);
-	sprintf(buf, "%d meshes; %d vertices; %d faces; %d bones", mesh_count, position.len/3, element.len/3, bone_count);
+	sprintf(buf, "%d meshes; %d vertices; %d faces; %d bones",
+		model->mesh->part_count, model->mesh->vertex_count, model->mesh->element_count/3, model->skel->count);
 	drawstring(8, 18+0, buf);
 	if (curanim) {
 		sprintf(buf, "%s (%03d / %03d)", curanim->name, curframe + 1, curanim->len);
@@ -1124,17 +1188,17 @@ void display(void)
 	if (showhelp) {
 		#define Y(n) 18+40+n*16
 		glColor4f(1, 1, 0.5, 1);
-		drawstring(8, Y(0), "a - change transparency mode");
-		drawstring(8, Y(1), "t - toggle textures");
-		drawstring(8, Y(2), "w - toggle wireframe");
-		drawstring(8, Y(3), "b - toggle backface culling");
-		drawstring(8, Y(4), "l - toggle two-sided lighting");
-		drawstring(8, Y(5), "k - toggle skeleton");
-		drawstring(8, Y(6), "g - toggle ground plane");
-		drawstring(8, Y(7), "p - toggle orthogonal/perspective camera");
-		drawstring(8, Y(8), "D - set up isometric camera (4:3)");
-		drawstring(8, Y(9), "i - set up dimetric camera (2:1)");
-		drawstring(8, Y(10), "I - set up isometric camera (true)");
+		drawstring(8, Y(0), "t - toggle textures");
+		drawstring(8, Y(1), "w - toggle wireframe");
+		drawstring(8, Y(2), "b - toggle backface culling");
+		drawstring(8, Y(3), "k - toggle skeleton");
+		drawstring(8, Y(4), "g - toggle ground plane");
+		drawstring(8, Y(6), "p - toggle orthogonal/perspective camera");
+		drawstring(8, Y(7), "i - set up dimetric camera (2:1)");
+		drawstring(8, Y(8), "I - set up isometric camera (true)");
+		drawstring(8, Y(10), "space - start/stop animation");
+		drawstring(8, Y(11), "',' and '.' - step animation frame by frame");
+		drawstring(8, Y(12), "'<' and '>' - switch animation");
 	}
 
 	glutSwapBuffers();
@@ -1146,7 +1210,6 @@ void display(void)
 int main(int argc, char **argv)
 {
 	float clearcolor[4] = { 0.22, 0.22, 0.22, 1.0 };
-	float zoom = 1;
 
 	glutInitWindowPosition(50, 50+24);
 	glutInitWindowSize(screenw, screenh);
@@ -1173,16 +1236,19 @@ int main(int argc, char **argv)
 
 		glutSetWindowTitle(argv[1]);
 
-		loadmodel(argv[1]);
+		model = loadmodel(argv[1]);
 
-		float radius = measuremodel(camera.center);
-		camera.distance = radius * 2 * zoom;
+		float radius = measuremodel(model, camera.center);
+		camera.distance = radius * 2;
 		gridsize = (int)radius + 1;
 		mindist = radius * 0.1;
 		maxdist = radius * 10;
 
-		if (mesh_count == 0 && bone_count > 0)
+		if (model->mesh->part_count == 0 && model->skel->count > 0)
 			doskeleton = 1;
+	} else {
+		fprintf(stderr, "usage: iqeview model.iqe\n");
+		exit(1);
 	}
 
 	glEnable(GL_MULTISAMPLE);
