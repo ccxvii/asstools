@@ -28,7 +28,8 @@ int dounscale = 0; // remove scaling from bind pose
 int dohips = 0; // reparent thighs to pelvis (see zo_hom_marche)
 
 char *only_one_node = NULL;
-int list_all_nodes = 0;
+int list_all_meshes = 0;
+int list_all_positions = 0;
 
 #define MAX_UVMAP 4
 #define FIRST_UVMAP 0
@@ -1107,13 +1108,28 @@ void export_mesh_list(const struct aiScene *scene)
 	}
 }
 
+void export_position_list(const struct aiScene *scene)
+{
+	int i;
+
+	calc_abs_pose();
+
+	for (i = 0; i < numbones; i++) {
+		printf("%s %g %g %g\n", bonelist[i].clean_name,
+			bonelist[i].abspose.a4,
+			bonelist[i].abspose.b4,
+			bonelist[i].abspose.c4);
+	}
+}
+
 void usage()
 {
 	fprintf(stderr, "usage: assiqe [options] [-o out.iqe] input.dae [tags ...]\n");
 	fprintf(stderr, "\t-AA -- export all bones (including unused ones)\n");
 	fprintf(stderr, "\t-A -- export all child bones\n");
 	fprintf(stderr, "\t-H -- fix hierarchy (thighs <- pelvis)\n");
-	fprintf(stderr, "\t-N -- print a list of meshes in scene then quit\n");
+	fprintf(stderr, "\t-M -- print a list of meshes in scene then quit\n");
+	fprintf(stderr, "\t-P -- print the positions of all bose in scene then quit\n");
 	fprintf(stderr, "\t-S -- static mesh only (no skeleton)\n");
 	fprintf(stderr, "\t-n mesh -- export only the named mesh\n");
 	fprintf(stderr, "\t-a -- only export animations\n");
@@ -1141,11 +1157,12 @@ int main(int argc, char **argv)
 	int onlyanim = 0;
 	int onlymesh = 0;
 
-	while ((c = getopt(argc, argv, "AHNSabflmn:o:rvxsu:")) != -1) {
+	while ((c = getopt(argc, argv, "AHMPSabflmn:o:rvxsu:")) != -1) {
 		switch (c) {
 		case 'A': save_all_bones++; break;
 		case 'H': dohips = 1; break;
-		case 'N': list_all_nodes = 1; break;
+		case 'M': list_all_meshes = 1; break;
+		case 'P': list_all_positions = 1; break;
 		case 'S': dostatic = 1; break;
 		case 'a': onlyanim = 1; break;
 		case 'm': onlymesh = 1; break;
@@ -1216,8 +1233,13 @@ int main(int argc, char **argv)
 		need_to_bake_skin = 0;
 	}
 
-	if (list_all_nodes) {
+	if (list_all_meshes) {
 		export_mesh_list(scene);
+		return 0;
+	}
+
+	if (list_all_positions) {
+		export_position_list(scene);
 		return 0;
 	}
 
