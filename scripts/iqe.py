@@ -24,7 +24,7 @@ class Mesh:
 	def save(self, file):
 		print >>file
 		print >>file, 'mesh %s' % self.name
-		print >>file, 'material %s' % '+'.join(self.material)
+		print >>file, 'material %s' % ';'.join(self.material)
 		for i in xrange(len(self.positions)):
 			xyz = self.positions[i]
 			print >>file, "vp %.9g %.9g %.9g" % xyz
@@ -133,7 +133,7 @@ def load_model(file):
 			mesh = Mesh(line[1])
 			model.meshes.append(mesh)
 		elif line[0] == "material":
-			mesh.material = line[1].split('+')
+			mesh.material = line[1].split(';')
 		elif line[0] == "vp": mesh.positions.append(tuple([float(x) for x in line[1:4]]))
 		elif line[0] == "vt": mesh.texcoords.append(tuple([float(x) for x in line[1:3]]))
 		elif line[0] == "vn": mesh.normals.append(tuple([float(x) for x in line[1:4]]))
@@ -479,7 +479,7 @@ def append_mesh(output, mesh):
 def merge_meshes(model):
 	map = {}
 	for mesh in model.meshes:
-		key = '+'.join(mesh.material)
+		key = ';'.join(mesh.material)
 		if key in map:
 			map[key] += [mesh]
 		else:

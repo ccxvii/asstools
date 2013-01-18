@@ -302,25 +302,17 @@ unsigned int loadmaterial(char *material)
 {
 	int texture;
 	char filename[2000], *s;
-	s = strrchr(material, '+');
+	s = strrchr(material, ';');
 	if (s) material = s + 1;
-	s = strrchr(material, '/');
-	if (!s) s = strrchr(material, '\\');
-	if (!s) s = material; else s++;
-	strcpy(filename, basedir);
-	strcat(filename, s);
-	strcat(filename, ".png");
+	sprintf(filename, "%s/%s.png", basedir, material);
 	texture = loadtexture(filename);
 	if (texture)
 		return texture;
-	strcpy(filename, basedir);
-	strcat(filename, "textures/");
-	strcat(filename, s);
-	strcat(filename, ".png");
+	sprintf(filename, "%s/textures/%s.png", basedir, material);
 	texture = loadtexture(filename);
 	if (texture)
 		return texture;
-	return 0;
+	return checker_texture;
 }
 
 /*
@@ -852,13 +844,8 @@ void drawmodel(struct model *model)
 	glColorPointer(3, GL_FLOAT, 0, mesh->texcoord);
 
 	for (i = 0; i < mesh->part_count; i++) {
-		if (mesh->part[i].material > 0) {
-			glColor4f(1, 1, 1, 1);
-			glBindTexture(GL_TEXTURE_2D, mesh->part[i].material);
-		} else {
-			glColor4f(0.9, 0.7, 0.7, 1);
-			glBindTexture(GL_TEXTURE_2D, checker_texture);
-		}
+		glColor4f(1, 1, 1, 1);
+		glBindTexture(GL_TEXTURE_2D, mesh->part[i].material);
 		glDrawElements(GL_TRIANGLES, mesh->part[i].count, GL_UNSIGNED_INT, mesh->element + mesh->part[i].first);
 	}
 
