@@ -23,8 +23,8 @@ class Mesh:
 
 	def save(self, file):
 		print >>file
-		print >>file, 'mesh "%s"' % self.name
-		print >>file, 'material "%s"' % '+'.join(self.material)
+		print >>file, 'mesh %s' % self.name
+		print >>file, 'material %s' % '+'.join(self.material)
 		for i in xrange(len(self.positions)):
 			xyz = self.positions[i]
 			print >>file, "vp %.9g %.9g %.9g" % xyz
@@ -60,7 +60,7 @@ class Animation:
 
 	def save(self, file):
 		print >>file
-		print >>file, 'animation "%s"' % self.name
+		print >>file, 'animation %s' % self.name
 		if self.framerate != 30: print >>file, "framerate %g" % self.framerate
 		if self.loop: print >>file, "loop"
 		framenumber = 0
@@ -86,11 +86,11 @@ class Model:
 			print >>file
 			# vertexarray custom0 float 2 "lightmap"
 			for va in self.vertexarrays:
-				print >>file, 'vertexarray %s %s %s "%s"' % va
+				print >>file, 'vertexarray %s %s %s %s' % va
 		if len(self.bones) > 0:
 			print >>file
 			for bone in self.bones:
-				print >>file, 'joint "%s" %d' % (bone[0], bone[1])
+				print >>file, 'joint %s %d' % (bone[0], bone[1])
 			print >>file
 			for pose in self.bindpose:
 				print >>file, "pq", " ".join(["%.9g" % x for x in pose])
