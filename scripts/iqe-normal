@@ -4,5 +4,5 @@ import sys
 from iqe import *
 
 m = load_model(sys.stdin)
-normal_thief(m, backface=False)
+calc_radial_model(m)
 m.save(sys.stdout)
