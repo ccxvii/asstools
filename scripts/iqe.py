@@ -78,6 +78,7 @@ class Model:
 		self.meshes = []
 		self.anims = []
 		self.vertexarrays = []
+		self.comment = []
 
 	def save(self, file):
 		print >>file, "# Inter-Quake Export"
@@ -97,6 +98,11 @@ class Model:
 			mesh.save(file)
 		for anim in self.anims:
 			anim.save(file)
+		if len(self.comment) > 0:
+			print >>file
+			print >>file, "comment"
+			for line in self.comment:
+				print >>file, line,
 
 def blend_pairs(t):
 	return tuple(zip(t[::2], t[1::2]))
@@ -106,7 +112,11 @@ def load_model(file):
 	mesh = None
 	pose = model.bindpose
 	anim = None
+	comment = False
 	for line in file:
+		if comment:
+			model.comment.append(line)
+			continue
 		if '"' in line or '#' in line:
 			line = shlex.split(line, "#")
 		else:
@@ -153,6 +163,8 @@ def load_model(file):
 			anim.frames.append(pose)
 		elif line[0] == "vertexarray":
 			model.vertexarrays.append(tuple(line[1:]))
+		elif line[0] == "comment":
+			comment = True
 	return model
 
 def save_as_obj(model, filename):
