@@ -826,6 +826,9 @@ def make_mesh_data(iqmodel, name, meshes, amtobj, dir):
 
 	mesh.update()
 
+	# Must set normals after mesh.update() or they will be recalculated.
+	mesh.vertices.foreach_set("normal", unpack_list(new_vn))
+
 	return obj
 
 #
