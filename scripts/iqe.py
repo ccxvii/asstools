@@ -42,12 +42,12 @@ class Mesh:
 		for i in xrange(len(self.positions)):
 			xyz = self.positions[i]
 			print >>file, "vp %.9g %.9g %.9g" % xyz
-			if len(self.normals):
-				xyz = self.normals[i]
-				print >>file, "vn %.9g %.9g %.9g" % xyz
 			if len(self.texcoords):
 				xy = self.texcoords[i]
 				print >>file, "vt %.9g %.9g" % xy
+			if len(self.normals):
+				xyz = self.normals[i]
+				print >>file, "vn %.9g %.9g %.9g" % xyz
 			if len(self.colors):
 				xyzw = self.colors[i]
 				print >>file, "vc %.9g %.9g %.9g %.9g" % xyzw
@@ -301,9 +301,9 @@ def calc_radial_model(model):
 		centers = []
 		print >>sys.stderr, "radial mats", mesh.material
 		for tag in mesh.material:
-			if tag == "radial=center": centers.append(calc_mesh_center(mesh))
-			elif tag == "radial=base": centers.append(calc_mesh_base(mesh))
-			elif tag.startswith("radial="): centers.append(tuple([float(x) for x in tag[7:].split(",")]))
+			if tag == "r=center": centers.append(calc_mesh_center(mesh))
+			elif tag == "r=base": centers.append(calc_mesh_base(mesh))
+			elif tag.startswith("r="): centers.append(tuple([float(x) for x in tag[2:].split(",")]))
 		if len(centers) > 0:
 			calc_radial_mesh(mesh, centers)
 
