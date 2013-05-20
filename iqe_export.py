@@ -17,6 +17,11 @@ from bpy.props import *
 from bpy_extras.io_utils import ExportHelper
 from mathutils import Matrix, Quaternion, Vector
 
+def quote(str):
+	if " " in str:
+		return "\"%s\"" % str
+	return str
+
 def make_blend(data, vertex_groups, bones):
 	raw = []
 	total = 0.0
@@ -54,14 +59,14 @@ def gather_custom_layers(file, mesh, vertex_groups=None, bones=None, custom={}):
 			i = len(custom) - 2
 			custom[layer.name] = "v%d" % i
 			if i == 0: file.write("\n")
-			file.write("vertexarray custom%d float 2 \"%s\"\n" % (i, layer.name))
+			file.write("vertexarray custom%d float 2 %s\n" % (i, quote(layer.name)))
 
 	for layer in mesh.tessface_vertex_colors:
 		if layer.name != 'Col' and layer.name not in custom:
 			i = len(custom) - 2
 			custom[layer.name] = "v%d" % i
 			if i == 0: file.write("\n")
-			file.write("vertexarray custom%d ubyte 4 \"%s\"\n" % (i, layer.name))
+			file.write("vertexarray custom%d ubyte 4 %s\n" % (i, quote(layer.name)))
 
 	if not bones:
 		for group in vertex_groups:
@@ -69,7 +74,7 @@ def gather_custom_layers(file, mesh, vertex_groups=None, bones=None, custom={}):
 				i = len(custom) - 2
 				custom[group.name] = "v%d" % i
 				if i == 0: file.write("\n")
-				file.write("vertexarray custom%d float 1 \"%s\"\n" % (i, group.name))
+				file.write("vertexarray custom%d float 1 %s\n" % (i, quote(group.name)))
 
 def export_mesh(file, mesh, mesh_name, vertex_groups=None, bones=None, custom={}):
 	print("exporting mesh:", mesh_name)
@@ -120,8 +125,8 @@ def export_mesh(file, mesh, mesh_name, vertex_groups=None, bones=None, custom={}
 			face_list.append(f)
 
 		file.write("\n")
-		file.write("mesh \"%s\"\n" % mesh_name)
-		file.write("material \"%s\"\n" % (fm < len(mesh.materials) and mesh.materials[fm].name))
+		file.write("mesh %s\n" % quote(mesh_name))
+		file.write("material %s\n" % (fm < len(mesh.materials) and quote(mesh.materials[fm].name)))
 
 		for v, vt, vc in vertex_list:
 			vp = tuple(mesh.vertices[v].co)
@@ -171,7 +176,7 @@ def export_object(file, scene, obj, bones=None, custom={}, apply_matrix=False):
 			if shape_key == obj.data.shape_keys.reference_key:
 				shape_name = obj.data.name
 			else:
-				shape_name = obj.data.name + "+" + shape_key.name
+				shape_name = obj.data.name + ";" + shape_key.name
 			shape_key.mute = False
 			export_object_imp(file, scene, obj, shape_name, obj.vertex_groups, bones, custom, apply_matrix)
 			shape_key.mute = True
@@ -202,7 +207,7 @@ def export_armature(file, obj, amt):
 			bone_map[bone.name] = count
 			count += 1
 		parent = bone_map[bone.parent.name] if bone.parent else -1
-		file.write("joint \"%s\" %d\n" % (bone.name, parent))
+		file.write("joint %s %d\n" % (quote(bone.name), parent))
 
 	file.write("\n")
 	for bone in amt.bones:
@@ -230,7 +235,7 @@ def export_action(file, scene, obj, amt, bones, action):
 	endframe = int(action.frame_range[1])
 	print("exporting action:", action.name, startframe, endframe)
 	file.write("\n")
-	file.write("animation \"%s\"\n" % action.name)
+	file.write("animation %s\n" % quote(action.name))
 	for time in range(startframe, endframe + 1):
 		scene.frame_set(time)
 		file.write("\n")
