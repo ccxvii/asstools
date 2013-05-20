@@ -176,9 +176,9 @@ def calc_pose_mats(iqmodel, iqpose, bone_axis):
 
 	# convert pose to local matrix and compute absolute matrix
 	for n, iqbone in enumerate(iqmodel.bones):
-		pose_pos = iqpose[n].translate
-		pose_rot = iqpose[n].rotate
-		pose_scale = iqpose[n].scale
+		pose_pos = iqpose[n][0:3]
+		pose_rot = iqpose[n][3:7]
+		pose_scale = iqpose[n][8:11] if len(iqpose[n]) == 10 else [1,1,1]
 
 		local_pos = Vector(pose_pos)
 		local_rot = Quaternion((pose_rot[3], pose_rot[0], pose_rot[1], pose_rot[2]))
@@ -343,6 +343,17 @@ def gather_meshes(model):
 		meshes[mesh.name].append(mesh)
 	return meshes
 
+def gather_vg(vertexarrays, mesh):
+	vg, vg_names = [], []
+	for i in range(10):
+		type = "custom%d" % i
+		if len(mesh.custom[i]) > 0:
+			for va in vertexarrays:
+				if va[0] == type and int(va[2]) == 1:
+					vg.append(mesh.custom[i])
+					vg_names.append(va[3])
+	return vg, vg_names
+
 def gather_vt(vertexarrays, mesh):
 	vt, vt_names = [], []
 	if len(mesh.texcoords) > 0:
@@ -390,7 +401,7 @@ def make_mesh(model, name, meshes, amtobj):
 	# Material, texture coords and vertex colors go to faces.
 
 	weld = {}
-	out_vp, out_vn, out_vb = [], [], []
+	out_vp, out_vn, out_vb, out_vg = [], [], [], []
 	out_f, out_f_mat, out_f_img, out_ft, out_fc = [], [], [], [], []
 
 	for m in meshes:
@@ -401,23 +412,27 @@ def make_mesh(model, name, meshes, amtobj):
 
 		out_from_in = []
 
+		vg, vg_names = gather_vg(model.vertexarrays, m)
+
 		for i, p in enumerate(m.positions):
 			n = m.normals[i] if len(m.normals) > i else (0,0,1)
 			b = m.blends[i] if len(m.blends) > i else None
-			# TODO: vertex groups custom data
-			key = p, n, b
+			g = tuple([g[i][0] for g in vg]) if len(vg) > 0 else None
+			key = p, n, b, g
 			if not key in weld:
 				weld[key] = len(out_vp)
 				out_vp.append(p)
 				out_vn.append(n)
 				out_vb.append(b)
+				out_vg.append(g)
 			out_from_in.append(weld[key])
 
 		vt, vt_names = gather_vt(model.vertexarrays, m)
 		vc, vc_names = gather_vc(model.vertexarrays, m)
 
-		print(vc_names)
-		print(vc)
+		print("texcoords:", vt_names)
+		print("colors:", vc_names)
+		print("groups:", vg_names)
 
 		for face in m.faces:
 			f = [out_from_in[v] for v in face]
@@ -470,17 +485,24 @@ def make_mesh(model, name, meshes, amtobj):
 			if len(out_fc[i]) > 3:
 				data.color4 = tuple(out_fc[i][3][k][:3])
 
+	# Non-skinning vertex groups
+
+	for k, name in enumerate(vg_names):
+		vgroup = obj.vertex_groups.new(name)
+		for i, g in enumerate(out_vg):
+			vgroup.add([i], g[k], 'REPLACE')
+
 	# Vertex groups and armature modifier for skinning
 
 	if amtobj:
-		for iqbone in iqmodel.bones:
+		for iqbone in model.bones:
 			obj.vertex_groups.new(iqbone[0])
 
 		for vgroup in obj.vertex_groups:
 			for i, b in enumerate(out_vb):
-				idx, wgt = b
+				idx, wgt = b[0]
 				if idx == vgroup.index:
-					vgroup.add([i], idx, 'REPLACE')
+					vgroup.add([i], wgt, 'REPLACE')
 
 		mod = obj.modifiers.new("Armature", 'ARMATURE')
 		mod.object = amtobj
