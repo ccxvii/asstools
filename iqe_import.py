@@ -532,7 +532,7 @@ images = {}
 def make_material(iqmaterial, dir):
 	print("importing material", iqmaterial)
 
-	matname = "+".join(iqmaterial)
+	matname = ";".join(iqmaterial)
 	texname = iqmaterial[-1]
 
 	# reuse materials if possible

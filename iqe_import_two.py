@@ -298,7 +298,7 @@ def make_actions(iqmodel, amtobj, bone_axis):
 		action = make_anim(iqmodel, anim, amtobj, bone_axis)
 
 def make_material(matname):
-	texname = matname.split("+")[-1]
+	texname = matname.split(";")[-1]
 	imgname = texname + ".png"
 
 	if imgname in bpy.data.images:
