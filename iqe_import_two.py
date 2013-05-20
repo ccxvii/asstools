@@ -311,7 +311,6 @@ def make_material(matname):
 	else:
 		tex = bpy.data.textures.new(texname, type='IMAGE')
 		tex.image = img
-		tex.use_alpha = True
 
 	if matname in bpy.data.materials:
 		mat = bpy.data.materials[matname]

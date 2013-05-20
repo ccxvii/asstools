@@ -546,7 +546,6 @@ def make_material(iqmaterial, dir):
 	if not texname in images:
 		print("load image", texname)
 		images[texname] = load_image("textures/" + texname + ".png", dir, place_holder=True, recursive=True)
-		images[texname].use_premultiply = True
 	image = images[texname]
 
 	if texname in bpy.data.textures:
