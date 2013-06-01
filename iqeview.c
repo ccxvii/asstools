@@ -303,15 +303,22 @@ unsigned int loadmaterial(char *material)
 	int texture;
 	char filename[2000], *s;
 	s = strrchr(material, ';');
-	if (s) material = s + 1;
-	sprintf(filename, "%s/%s.png", basedir, material);
+	if (s) s = s + 1;
+	else s = material;
+	sprintf(filename, "%s/%s.png", basedir, s);
 	texture = loadtexture(filename);
-	if (texture)
+	if (!texture) {
+		sprintf(filename, "%s/textures/%s.png", basedir, s);
+		texture = loadtexture(filename);
+	}
+	if (texture) {
+		if (strstr(material, "clamp;")) {
+			glBindTexture(GL_TEXTURE_2D, texture);
+			glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP);
+			glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP);
+		}
 		return texture;
-	sprintf(filename, "%s/textures/%s.png", basedir, material);
-	texture = loadtexture(filename);
-	if (texture)
-		return texture;
+	}
 	return checker_texture;
 }
 
