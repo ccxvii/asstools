@@ -40,8 +40,7 @@ def vec_roll_to_mat3(vec, roll):
 def mat3_to_vec_roll(mat):
 	vec = mat.col[1]
 	vecmat = vec_roll_to_mat3(mat.col[1], 0)
-	vecmatinv = vecmat.copy()
-	vecmatinv.invert()
+	vecmatinv = vecmat.inverted()
 	rollmat = vecmatinv * mat
 	roll = math.atan2(rollmat[0][2], rollmat[2][2])
 	return vec, roll

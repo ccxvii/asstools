@@ -34,7 +34,7 @@ typedef float vec4[4];
 typedef float mat4[16];
 
 struct pose {
-	vec3 position;
+	vec3 location;
 	vec4 rotation;
 	vec3 scale;
 };
@@ -223,7 +223,7 @@ static void calc_matrix_from_pose(mat4 *pose_matrix, struct pose *pose, int coun
 {
 	int i;
 	for (i = 0; i < count; i++)
-		mat_from_pose(pose_matrix[i], pose[i].position, pose[i].rotation, pose[i].scale);
+		mat_from_pose(pose_matrix[i], pose[i].location, pose[i].rotation, pose[i].scale);
 }
 
 /*
@@ -663,9 +663,9 @@ static struct model *loadmodel(char *filename)
 
 		else if (s[0] == 'p' && s[1] == 'q' && s[2] == 0) {
 			if (pose_count < MAXBONE) {
-				pose[pose_count].position[0] = parsefloat(&sp, 0);
-				pose[pose_count].position[1] = parsefloat(&sp, 0);
-				pose[pose_count].position[2] = parsefloat(&sp, 0);
+				pose[pose_count].location[0] = parsefloat(&sp, 0);
+				pose[pose_count].location[1] = parsefloat(&sp, 0);
+				pose[pose_count].location[2] = parsefloat(&sp, 0);
 				pose[pose_count].rotation[0] = parsefloat(&sp, 0);
 				pose[pose_count].rotation[1] = parsefloat(&sp, 0);
 				pose[pose_count].rotation[2] = parsefloat(&sp, 0);

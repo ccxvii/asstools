@@ -8,6 +8,7 @@ Material tags that I use with the IQE format:
 	blend		-- normal alpha blending
 	additive	-- additive alpha blending. implies shadeless.
 
-	radial=center	-- radial normals from center of mesh
-	radial=base	-- radial normals from bottom center of mesh
-	radial=x,y,z	-- radial normals from coordinate. may be repeated. uses closest coordinate specified for each vertex.
+	radial		-- radial normals from center of mesh
+	r=x,y,z		-- radial normals from coordinate. may be repeated. uses closest coordinate specified for each vertex.
+
+	clamp		-- don't repeat uv
