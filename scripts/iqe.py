@@ -75,7 +75,7 @@ class Animation:
 	def save(self, file):
 		print >>file
 		print >>file, 'animation %s' % self.name
-		if self.framerate != 30: print >>file, "framerate %g" % self.framerate
+		print >>file, "framerate %g" % self.framerate
 		if self.loop: print >>file, "loop"
 		framenumber = 0
 		for frame in self.frames:
@@ -421,6 +421,37 @@ def select_meshes(model, meshnames):
 			if fnmatch.fnmatch(mesh.name, glob):
 				bucket[mesh] = 1
 	model.meshes = bucket.keys()
+
+# Check looping state by comparing first and last frames.
+
+def vec_diff(a, b):
+	x, y, z = a[0] - b[0], a[1] - b[1], a[2] - b[2]
+	return math.sqrt(x*x + y*y + z*z)
+
+def quat_diff(a, b):
+	x, y, z, w = a[0] - b[0], a[1] - b[1], a[2] - b[2], a[3] - b[3]
+	return math.sqrt(x*x + y*y + z*z + w*w)
+
+def pose_diff(a, b):
+	ap, bp = a[0:3], b[0:3]
+	ar, br = a[3:7], b[3:7]
+	az, bz = a[7:10], b[7:10]
+	if len(az) == 0: az = (1,1,1)
+	if len(bz) == 0: bz = (1,1,1)
+	return vec_diff(ap, bp) + quat_diff(ar, br) + vec_diff(az, bz)
+
+def recalc_loop_flag(anim):
+	a = anim.frames[0]
+	b = anim.frames[-1]
+	anim.loop = True
+	for i in range(1, len(a)):
+		if pose_diff(a[i], b[i]) > 0.1:
+			print >>sys.stderr, i, pose_diff(a[i], b[i])
+			anim.loop = False
+
+def model_recalc_loop(model):
+	for anim in model.anims:
+		recalc_loop_flag(anim)
 
 # Copy bind pose from one file to another, matching by bone names.
 
