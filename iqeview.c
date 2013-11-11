@@ -929,7 +929,7 @@ int doplay = 0;
 
 struct model *model = NULL;
 
-unsigned int curframe = 0;
+int curframe = 0;
 struct anim *curanim = NULL;
 float curtime = 0;
 int lasttime = 0;
@@ -1019,6 +1019,13 @@ void togglefullscreen(void)
 	isfullscreen = !isfullscreen;
 }
 
+void stepframe(int dir)
+{
+	curframe += dir;
+	while (curframe < 0) curframe += curanim->len;
+	while (curframe >= curanim->len) curframe -= curanim->len;
+}
+
 void keyboard(unsigned char key, int x, int y)
 {
 	switch (key) {
@@ -1036,8 +1043,8 @@ void keyboard(unsigned char key, int x, int y)
 	case 'k': doskeleton = !doskeleton; break;
 	case ' ': doplay = !doplay; break;
 	case '0': curframe = 0; if (curanim) animatemodel(model, curanim, curframe); break;
-	case ',': if (curanim) { curframe--; curframe %= curanim->len; animatemodel(model, curanim, curframe); } break;
-	case '.': if (curanim) { curframe++; curframe %= curanim->len; animatemodel(model, curanim, curframe); } break;
+	case ',': if (curanim) { stepframe(-1); animatemodel(model, curanim, curframe); } break;
+	case '.': if (curanim) { stepframe(1); animatemodel(model, curanim, curframe); } break;
 	case '<':
 		if (curanim && curanim->prev) {
 			curanim = curanim->prev;
