@@ -13,7 +13,7 @@ endif
 ifeq "$(OS)" "Linux"
 AI_CFLAGS += -I../assimp/include
 AI_LIBS += -L../assimp/build/code -lassimp -lz -lstdc++
-GL_LIBS += -lglut -lGL
+GL_LIBS += -lglut -lGL -lm
 endif
 ifeq "$(OS)" "MINGW"
 AI_CFLAGS += -I../assimp/include
