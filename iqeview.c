@@ -848,7 +848,7 @@ void drawmodel(struct model *model)
 	glVertexPointer(3, GL_FLOAT, 0, mesh->aposition ? mesh->aposition : mesh->position);
 	glNormalPointer(GL_FLOAT, 0, mesh->anormal ? mesh->anormal : mesh->normal);
 	glTexCoordPointer(2, GL_FLOAT, 0, mesh->texcoord);
-	glColorPointer(3, GL_FLOAT, 0, mesh->texcoord);
+	glColorPointer(3, GL_FLOAT, 0, mesh->color);
 
 	for (i = 0; i < mesh->part_count; i++) {
 		glColor4f(1, 1, 1, 1);
