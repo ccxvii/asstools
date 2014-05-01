@@ -428,7 +428,12 @@ def vec_diff(a, b):
 	x, y, z = a[0] - b[0], a[1] - b[1], a[2] - b[2]
 	return math.sqrt(x*x + y*y + z*z)
 
+def quat_neg(q):
+	return -q[0], -q[1], -q[2], -q[3]
+
 def quat_diff(a, b):
+	if a[3] < 0: a = quat_neg(a)
+	if b[3] < 0: b = quat_neg(b)
 	x, y, z, w = a[0] - b[0], a[1] - b[1], a[2] - b[2], a[3] - b[3]
 	return math.sqrt(x*x + y*y + z*z + w*w)
 
@@ -440,18 +445,28 @@ def pose_diff(a, b):
 	if len(bz) == 0: bz = (1,1,1)
 	return vec_diff(ap, bp) + quat_diff(ar, br) + vec_diff(az, bz)
 
-def recalc_loop_flag(anim):
+def print_diff(a, b):
+	ap, bp = a[0:3], b[0:3]
+	ar, br = a[3:7], b[3:7]
+	az, bz = a[7:10], b[7:10]
+	if len(az) == 0: az = (1,1,1)
+	if len(bz) == 0: bz = (1,1,1)
+	return vec_diff(ap, bp), quat_diff(ar, br), vec_diff(az, bz)
+
+
+def recalc_loop_flag(bones, anim):
 	a = anim.frames[0]
 	b = anim.frames[-1]
-	anim.loop = True
+	n = 0
 	for i in range(1, len(a)):
 		if pose_diff(a[i], b[i]) > 0.1:
-			print >>sys.stderr, i, pose_diff(a[i], b[i])
-			anim.loop = False
+			print >>sys.stderr, i, bones[i][0], print_diff(a[i], b[i])
+			n = n + 1
+	anim.loop = n <= 3
 
 def model_recalc_loop(model):
 	for anim in model.anims:
-		recalc_loop_flag(anim)
+		recalc_loop_flag(model.bones, anim)
 
 # Copy bind pose from one file to another, matching by bone names.
 
