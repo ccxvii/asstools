@@ -918,12 +918,16 @@ float measuremodel(struct model *model, float center[3])
 #define ISOMETRIC 35.264	// true isometric view
 #define DIMETRIC 30		// 2:1 'isometric' as seen in pixel art
 
+enum {
+	PERSPECTIVE, ORTHOGONAL, OBLIQUE
+};
+
 int showhelp = 0;
 int doplane = 0;
 int dowire = 0;
 int dotexture = 1;
 int dobackface = 1;
-int doperspective = 1;
+int docamera = PERSPECTIVE;
 int doskeleton = 0;
 int doplay = 0;
 
@@ -960,6 +964,20 @@ void perspective(float fov, float aspect, float znear, float zfar)
 void orthogonal(float fov, float aspect, float znear, float zfar)
 {
 	glOrtho(-fov * aspect, fov * aspect, -fov, fov, znear, zfar);
+}
+
+void oblique(float fov, float aspect, float znear, float zfar)
+{
+	float c = -0.5 * sin(M_PI/2);
+	float s = -0.5 * sin(M_PI/2);
+	float oblique[16] = {
+		1, 0, 0, 0,
+		0, 1, 0, 0,
+		c, s, 1, 0,
+		-fov, -fov, 0, 1
+	};
+	glOrtho(-fov * aspect, fov * aspect, -fov, fov, znear, zfar);
+	glMultMatrixf(oblique);
 }
 
 void drawstring(float x, float y, char *s)
@@ -1032,10 +1050,10 @@ void keyboard(unsigned char key, int x, int y)
 	case 27: case 'q': exit(1); break;
 	case 'h': case '?': showhelp = !showhelp; break;
 	case 'f': togglefullscreen(); break;
-	case 'i': doperspective = 0; camera.yaw = 45; camera.pitch = -DIMETRIC; break;
-	case 'I': doperspective = 0; camera.yaw = 45; camera.pitch = -ISOMETRIC; break;
-	case 'D': doperspective = 0; camera.yaw = 45; camera.pitch = -DIABLO; break;
-	case 'p': doperspective = !doperspective; break;
+	case 'i': docamera = ORTHOGONAL; camera.yaw = 45; camera.pitch = -DIMETRIC; break;
+	case 'I': docamera = ORTHOGONAL; camera.yaw = 45; camera.pitch = -ISOMETRIC; break;
+	case 'o': docamera = OBLIQUE; camera.yaw = 0; camera.pitch = 0; break;
+	case 'p': docamera = PERSPECTIVE; break;
 	case 'g': doplane = !doplane; break;
 	case 't': dotexture = !dotexture; break;
 	case 'w': dowire = !dowire; break;
@@ -1099,10 +1117,12 @@ void display(void)
 
 	glMatrixMode(GL_PROJECTION);
 	glLoadIdentity();
-	if (doperspective)
-		perspective(50, (float)screenw/screenh, mindist/5, maxdist*5);
-	else
-		orthogonal(camera.distance/2, (float)screenw/screenh, mindist/5, maxdist*5);
+	switch (docamera)
+	{
+	case PERSPECTIVE: perspective(50, (float)screenw/screenh, mindist/5, maxdist*5); break;
+	case ORTHOGONAL: orthogonal(camera.distance/2, (float)screenw/screenh, mindist/5, maxdist*5); break;
+	case OBLIQUE: oblique(camera.distance/2, (float)screenw/screenh, mindist/5, maxdist*5); break;
+	}
 
 	glMatrixMode(GL_MODELVIEW);
 	glLoadIdentity();
@@ -1194,12 +1214,14 @@ void display(void)
 		drawstring(8, Y(2), "b - toggle backface culling");
 		drawstring(8, Y(3), "k - toggle skeleton");
 		drawstring(8, Y(4), "g - toggle ground plane");
-		drawstring(8, Y(6), "p - toggle orthogonal/perspective camera");
+		drawstring(8, Y(6), "p - set up perspective camera");
 		drawstring(8, Y(7), "i - set up dimetric camera (2:1)");
 		drawstring(8, Y(8), "I - set up isometric camera (true)");
-		drawstring(8, Y(10), "space - start/stop animation");
-		drawstring(8, Y(11), "',' and '.' - step animation frame by frame");
-		drawstring(8, Y(12), "'<' and '>' - switch animation");
+		drawstring(8, Y(9), "o - set up oblique camera");
+
+		drawstring(8, Y(11), "space - start/stop animation");
+		drawstring(8, Y(12), "',' and '.' - step animation frame by frame");
+		drawstring(8, Y(13), "'<' and '>' - switch animation");
 	}
 
 	glutSwapBuffers();
