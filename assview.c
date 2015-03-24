@@ -170,8 +170,8 @@ void normalizequaternion(struct aiQuaternion *q)
 
 void mixquaternion(struct aiQuaternion *q, struct aiQuaternion *a, struct aiQuaternion *b, float t)
 {
+	struct aiQuaternion tmp;
 	if (dotquaternions(a, b) < 0) {
-		struct aiQuaternion tmp;
 		tmp.x = -a->x; tmp.y = -a->y; tmp.z = -a->z; tmp.w = -a->w;
 		a = &tmp;
 	}
