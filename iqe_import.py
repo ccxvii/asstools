@@ -14,7 +14,7 @@ bl_info = {
 import bpy, math, shlex, struct, os, sys, glob
 
 from bpy.props import *
-from bpy_extras.io_utils import ImportHelper, unpack_list, unpack_face_list
+from bpy_extras.io_utils import ImportHelper, unpack_list
 from bpy_extras.image_utils import load_image
 from mathutils import Matrix, Quaternion, Vector
 
@@ -725,10 +725,11 @@ def make_mesh_data(iqmodel, name, meshes, amtobj, dir):
 				f.append(vertex_map[vertex])
 				ft.append(iqmesh.vt[iqvert] if has_vt else None)
 				fc.append(iqmesh.vc[iqvert] if has_vc else None)
-			f, ft, fc = reorder(f, ft, fc)
+			f, ft, fc = reorder(f, ft, fc)  # XXX: do we need this?
 			if isdegenerate(f):
 				print("degenerate face", iqface, f)
 				continue
+			# XXX: what about duplicate faces?
 			new_f.append(f)
 			new_ft.append(ft)
 			new_fc.append(fc)
@@ -739,31 +740,25 @@ def make_mesh_data(iqmodel, name, meshes, amtobj, dir):
 
 	# Create mesh vertex and face data
 
-	mesh.vertices.add(len(new_vp))
-	mesh.vertices.foreach_set("co", unpack_list(new_vp))
-
-	mesh.tessfaces.add(len(new_f))
-	mesh.tessfaces.foreach_set("vertices_raw", unpack_face_list(new_f))
+	mesh.from_pydata(new_vp, [], new_f)
+	mesh.validate()
 
 	# Set up UV and Color layers
 
-	uvlayer = mesh.tessface_uv_textures.new() if has_vt else None
-	clayer = mesh.tessface_vertex_colors.new() if has_vc else None
+	uvtexture = mesh.uv_textures.new() if has_vt else None
+	uvlayer = mesh.uv_layers[0] if has_vt else None
+	clayer = mesh.vertex_colors.new() if has_vc else None
 
-	for i, face in enumerate(mesh.tessfaces):
-		face.use_smooth = True
-		face.material_index = new_fm_m[i]
+	for poly_i, poly in enumerate(mesh.polygons):
+		poly.use_smooth = True
+		poly.material_index = new_fm_m[poly_i]
+		uvtexture.data[poly_i].image = new_fm_i[poly_i]
 		if uvlayer:
-			uvlayer.data[i].uv1 = new_ft[i][0]
-			uvlayer.data[i].uv2 = new_ft[i][1]
-			uvlayer.data[i].uv3 = new_ft[i][2]
-			uvlayer.data[i].uv4 = new_ft[i][3] if len(new_ft[i]) == 4 else (0,0)
-			uvlayer.data[i].image = new_fm_i[i]
+			for i, loop_i in enumerate(poly.loop_indices):
+				uvlayer.data[loop_i].uv = new_ft[poly_i][i]
 		if clayer:
-			clayer.data[i].color1 = new_fc[0]
-			clayer.data[i].color2 = new_fc[1]
-			clayer.data[i].color3 = new_fc[2]
-			clayer.data[i].color4 = new_fc[3] if len(new_fc[i]) == 4 else (1,1,1)
+			for i, loop_i in enumerate(poly.loop_indices):
+				clayer.data[loop_i].color = new_fc[poly_i][i]
 
 	# Vertex groups and armature modifier for skinning
 
