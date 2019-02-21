@@ -451,12 +451,17 @@ def make_armature(iqmodel, bone_axis):
 
 	print("importing armature with %d bones" % len(iqmodel.bones))
 
-	amt = bpy.data.armatures.new(iqmodel.name)
-	obj = bpy.data.objects.new(iqmodel.name + ".amt", amt)
-	bpy.context.scene.objects.link(obj)
-	bpy.context.scene.objects.active = obj
+	# Need to be in object mode before we can enter edit mode; this throws if
+	# we're already in object mode
+	try:
+		bpy.ops.object.mode_set(mode="OBJECT")
+	except RuntimeError:
+		pass
 
-	bpy.ops.object.mode_set(mode='EDIT')
+	bpy.ops.object.add(type="ARMATURE", enter_editmode=True)
+	obj, amt = bpy.context.object, bpy.context.object.data
+	amt.name = iqmodel.name
+	obj.name = iqmodel.name + ".amt"
 
 	loc_bind_mat, abs_bind_mat = calc_pose_mats(iqmodel, iqmodel.bindpose, bone_axis)
 	iqmodel.abs_bind_mat = abs_bind_mat
@@ -845,14 +850,20 @@ def make_model(iqmodel, bone_axis, dir):
 	group = bpy.data.groups.new(iqmodel.name)
 
 	amtobj = make_armature(iqmodel, bone_axis)
-	if amtobj:
-		group.objects.link(amtobj)
-
 	meshes = gather_meshes(iqmodel)
+
+	if amtobj:
+		rootobj = amtobj
+	elif meshes:
+		bpy.ops.object.empty_add()
+		rootobj = bpy.context.object
+		rootobj.name = iqmodel.name
+
+	group.objects.link(rootobj)
+
 	for name in meshes:
 		meshobj = make_mesh_data(iqmodel, name, meshes[name], amtobj, dir)
-		if amtobj:
-			meshobj.parent = amtobj
+		meshobj.parent = rootobj
 		group.objects.link(meshobj)
 
 	if len(iqmodel.anims) > 0:
