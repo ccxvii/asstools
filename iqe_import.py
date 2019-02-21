@@ -749,6 +749,18 @@ def make_mesh_data(iqmodel, name, meshes, amtobj, dir):
 	uvlayer = mesh.uv_layers[0] if has_vt else None
 	clayer = mesh.vertex_colors.new() if has_vc else None
 
+	# Define function for switching to RGB/RGBA as appropriate
+
+	if has_vc:
+		num_colors = len(new_fc[0][0])
+		num_blender_colors = len(clayer.data[0].color)
+		if num_colors == 3 and num_blender_colors == 4:
+			def color(rgb): return rgb + [1]
+		elif num_colors == 4 and num_blender_colors == 3:
+			def color(rgba): return rgba[0:3]
+		elif num_colors == num_blender_colors:
+			def color(c): return c
+
 	for poly_i, poly in enumerate(mesh.polygons):
 		poly.use_smooth = True
 		poly.material_index = new_fm_m[poly_i]
@@ -758,7 +770,7 @@ def make_mesh_data(iqmodel, name, meshes, amtobj, dir):
 				uvlayer.data[loop_i].uv = new_ft[poly_i][i]
 		if clayer:
 			for i, loop_i in enumerate(poly.loop_indices):
-				clayer.data[loop_i].color = new_fc[poly_i][i]
+				clayer.data[loop_i].color = color(new_fc[poly_i][i])
 
 	# Vertex groups and armature modifier for skinning
 
