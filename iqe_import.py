@@ -5,7 +5,7 @@ bl_info = {
 	"description": "Import Inter-Quake Model.",
 	"author": "Tor Andersson",
 	"version": (2012, 12, 2),
-	"blender": (2, 6, 4),
+	"blender": (2, 80, 0),
 	"location": "File > Import > Inter-Quake Model",
 	"wiki_url": "http://github.com/ccxvii/asstools",
 	"category": "Import-Export",
@@ -22,6 +22,18 @@ from mathutils import Matrix, Quaternion, Vector
 # see blenkernel/intern/armature.c for mat3_to_vec_roll
 # see makesrna/intern/rna_armature.c for rna_EditBone_matrix_get
 
+# Compatiblity shims
+if bpy.app.version >= (2, 80, 0):
+	def matmul(x, y): return x.__matmul__(y)
+	def make_group(name): return bpy.data.collections.new(name)
+	def link_object(ob): bpy.context.scene.collection.objects.link(ob)
+	def select_ob(ob, state=True): ob.select_set(state=state)
+else:
+	def matmul(x, y): return x * y
+	def make_group(name): return bpy.data.groups.new(name)
+	def link_object(ob): bpy.context.scene.objects.link(ob)
+	def select_ob(ob, state=True): ob.select = state
+
 def vec_roll_to_mat3(vec, roll):
 	target = Vector((0,1,0))
 	nor = vec.normalized()
@@ -34,7 +46,7 @@ def vec_roll_to_mat3(vec, roll):
 		updown = 1 if target.dot(nor) > 0 else -1
 		bMatrix = Matrix.Scale(updown, 3)
 	rMatrix = Matrix.Rotation(roll, 3, nor)
-	mat = rMatrix * bMatrix
+	mat = matmul(rMatrix, bMatrix)
 	return mat
 
 def mat3_to_vec_roll(mat):
@@ -42,7 +54,7 @@ def mat3_to_vec_roll(mat):
 	vecmat = vec_roll_to_mat3(mat.col[1], 0)
 	vecmatinv = vecmat.copy()
 	vecmatinv.invert()
-	rollmat = vecmatinv * mat
+	rollmat = matmul(vecmatinv, mat)
 	roll = math.atan2(rollmat[0][2], rollmat[2][2])
 	return vec, roll
 
@@ -405,10 +417,10 @@ def calc_pose_mats(iqmodel, iqpose, bone_axis):
 		mat_pos = Matrix.Translation(local_pos)
 		mat_rot = local_rot.to_matrix().to_4x4()
 		mat_scale = Matrix.Scale(local_scale.x, 3).to_4x4()
-		loc_pose_mat[n] = mat_pos * mat_rot * mat_scale
+		loc_pose_mat[n] = matmul(matmul(mat_pos, mat_rot), mat_scale)
 
 		if iqbone.parent >= 0:
-			abs_pose_mat[n] = abs_pose_mat[iqbone.parent] * loc_pose_mat[n]
+			abs_pose_mat[n] = matmul(abs_pose_mat[iqbone.parent], loc_pose_mat[n])
 		else:
 			abs_pose_mat[n] = loc_pose_mat[n]
 
@@ -420,17 +432,17 @@ def calc_pose_mats(iqmodel, iqpose, bone_axis):
 		if abs_pose_mat[n].is_negative:
 			if not hasattr(iqmodel, 'abs_bind_mat'):
 				print("warning: removing negative scale in bone", iqmodel.bones[n].name)
-			abs_pose_mat[n] = abs_pose_mat[n] * Matrix.Scale(-1, 4)
+			abs_pose_mat[n] = matmul(abs_pose_mat[n], Matrix.Scale(-1, 4))
 			recalc = True
 
 	# flip bone axis (and recompute local matrix if needed)
 	if bone_axis == 'X':
 		axis_flip = Matrix.Rotation(math.radians(-90), 4, 'Z')
-		abs_pose_mat = [m * axis_flip for m in abs_pose_mat]
+		abs_pose_mat = [matmul(m, axis_flip) for m in abs_pose_mat]
 		recalc = True
 	if bone_axis == 'Z':
 		axis_flip = Matrix.Rotation(math.radians(-90), 4, 'X')
-		abs_pose_mat = [m * axis_flip for m in abs_pose_mat]
+		abs_pose_mat = [matmul(m, axis_flip) for m in abs_pose_mat]
 		recalc = True
 
 	if recalc:
@@ -438,7 +450,7 @@ def calc_pose_mats(iqmodel, iqpose, bone_axis):
 		for n in range(len(iqmodel.bones)):
 			iqbone = iqmodel.bones[n]
 			if iqbone.parent >= 0:
-				loc_pose_mat[n] = inv_pose_mat[iqbone.parent] * abs_pose_mat[n]
+				loc_pose_mat[n] = matmul(inv_pose_mat[iqbone.parent], abs_pose_mat[n])
 			else:
 				loc_pose_mat[n] = abs_pose_mat[n]
 
@@ -506,7 +518,7 @@ def make_pose(iqmodel, frame, amtobj, bone_axis, tick):
 	for n in range(len(iqmodel.bones)):
 		name = iqmodel.bones[n].name
 		pose_bone = amtobj.pose.bones[name]
-		pose_bone.matrix_basis = iqmodel.inv_loc_bind_mat[n] * loc_pose_mat[n]
+		pose_bone.matrix_basis = matmul(iqmodel.inv_loc_bind_mat[n], loc_pose_mat[n])
 		pose_bone.keyframe_insert(group=name, frame=tick, data_path='location')
 		pose_bone.keyframe_insert(group=name, frame=tick, data_path='rotation_quaternion')
 		pose_bone.keyframe_insert(group=name, frame=tick, data_path='scale')
@@ -561,24 +573,36 @@ def make_material(iqmaterial, dir):
 		tex.use_alpha = True
 
 	mat = bpy.data.materials.new(matname)
-	mat.diffuse_intensity = 1
-	mat.specular_intensity = 0
-	mat.alpha = 0.0
+	if bpy.app.version < (2, 80, 0):
+		mat.diffuse_intensity = 1
+		mat.specular_intensity = 0
+		mat.alpha = 0.0
 
-	texslot = mat.texture_slots.add()
-	texslot.texture = tex
-	texslot.texture_coords = 'UV'
-	texslot.uv_layer = "UVMap"
-	texslot.use_map_color_diffuse = True
-	texslot.use_map_alpha = True
+		texslot = mat.texture_slots.add()
+		texslot.texture = tex
+		texslot.texture_coords = 'UV'
+		texslot.uv_layer = "UVMap"
+		texslot.use_map_color_diffuse = True
+		texslot.use_map_alpha = True
 
-	if unlit: mat.use_shadeless = True
-	mat.use_transparency = True
+		if unlit: mat.use_shadeless = True
+		mat.use_transparency = True
 
-	# blender game engine
-	mat.game_settings.use_backface_culling = not twosided
-	mat.game_settings.alpha_blend = 'CLIP'
-	if alphatest and unlit: mat.game_settings.alpha_blend = 'ADD'
+		# blender game engine
+		mat.game_settings.use_backface_culling = not twosided
+		mat.game_settings.alpha_blend = 'CLIP'
+		if alphatest and unlit: mat.game_settings.alpha_blend = 'ADD'
+
+	else:
+		mat.use_nodes = True
+		prinnode = mat.node_tree.nodes['Principled BSDF']
+		texnode = mat.node_tree.nodes.new('ShaderNodeTexImage')
+		texnode.location = (-280, 280)
+		texnode.image = image
+		mat.node_tree.links.new(texnode.outputs[0], prinnode.inputs['Base Color'])
+		prinnode.inputs['Roughness'].default_value = 1
+
+		mat.blend_method = 'CLIP'
 
 	# return the material (and image so we can link the uvlayer faces)
 	return mat, image
@@ -625,8 +649,7 @@ def make_mesh_data(iqmodel, name, meshes, amtobj, dir):
 
 	mesh = bpy.data.meshes.new(name)
 	obj = bpy.data.objects.new(name, mesh)
-	bpy.context.scene.objects.link(obj)
-	bpy.context.scene.objects.active = obj
+	link_object(obj)
 
 	# Set the mesh to single-sided to spot normal errors
 	mesh.show_double_sided = False
@@ -745,8 +768,13 @@ def make_mesh_data(iqmodel, name, meshes, amtobj, dir):
 
 	# Set up UV and Color layers
 
-	uvtexture = mesh.uv_textures.new() if has_vt else None
-	uvlayer = mesh.uv_layers[0] if has_vt else None
+	if has_vt:
+		if getattr(mesh.uv_layers, 'new', None) is not None:
+			uvtexture = None
+			uvlayer = mesh.uv_layers.new()
+		else:
+			uvtexture = mesh.uv_textures.new()
+			uvlayer = mesh.uv_layers[0]
 	clayer = mesh.vertex_colors.new() if has_vc else None
 
 	# Define function for switching to RGB/RGBA as appropriate
@@ -764,7 +792,6 @@ def make_mesh_data(iqmodel, name, meshes, amtobj, dir):
 	for poly_i, poly in enumerate(mesh.polygons):
 		poly.use_smooth = True
 		poly.material_index = new_fm_m[poly_i]
-		uvtexture.data[poly_i].image = new_fm_i[poly_i]
 		if uvlayer:
 			for i, loop_i in enumerate(poly.loop_indices):
 				uvlayer.data[loop_i].uv = new_ft[poly_i][i]
@@ -772,11 +799,15 @@ def make_mesh_data(iqmodel, name, meshes, amtobj, dir):
 			for i, loop_i in enumerate(poly.loop_indices):
 				clayer.data[loop_i].color = color(new_fc[poly_i][i])
 
+	if has_vt and uvtexture:
+		for poly_i, poly in enumerate(mesh.polygons):
+			uvtexture.data[poly_i].image = new_fm_i[poly_i]
+
 	# Vertex groups and armature modifier for skinning
 
 	if has_vb and amtobj:
 		for iqbone in iqmodel.bones:
-			obj.vertex_groups.new(iqbone.name)
+			obj.vertex_groups.new(name=iqbone.name)
 
 		for vgroup in obj.vertex_groups:
 			for v, vbi in enumerate(new_vbi):
@@ -794,28 +825,28 @@ def make_mesh_data(iqmodel, name, meshes, amtobj, dir):
 	def make_custom_vgroup(obj, name, size, vdata):
 		print("importing custom attribute as vertex group", name)
 		if size == 1:
-			xg = obj.vertex_groups.new(name)
+			xg = obj.vertex_groups.new(name=name)
 			for i, v in enumerate(vdata):
 				xg.add([i], v[0], 'REPLACE')
 		if size == 2:
-			xg = obj.vertex_groups.new(name + ".x")
-			yg = obj.vertex_groups.new(name + ".y")
+			xg = obj.vertex_groups.new(name=name + ".x")
+			yg = obj.vertex_groups.new(name=name + ".y")
 			for i, v in enumerate(vdata):
 				xg.add([i], v[0], 'REPLACE')
 				yg.add([i], v[1], 'REPLACE')
 		if size == 3:
-			xg = obj.vertex_groups.new(name + ".x")
-			yg = obj.vertex_groups.new(name + ".y")
-			zg = obj.vertex_groups.new(name + ".z")
+			xg = obj.vertex_groups.new(name=name + ".x")
+			yg = obj.vertex_groups.new(name=name + ".y")
+			zg = obj.vertex_groups.new(name=name + ".z")
 			for i, v in enumerate(vdata):
 				xg.add([i], v[0], 'REPLACE')
 				yg.add([i], v[1], 'REPLACE')
 				zg.add([i], v[2], 'REPLACE')
 		if size == 4:
-			xg = obj.vertex_groups.new(name + ".x")
-			yg = obj.vertex_groups.new(name + ".y")
-			zg = obj.vertex_groups.new(name + ".z")
-			wg = obj.vertex_groups.new(name + ".z")
+			xg = obj.vertex_groups.new(name=name + ".x")
+			yg = obj.vertex_groups.new(name=name + ".y")
+			zg = obj.vertex_groups.new(name=name + ".z")
+			wg = obj.vertex_groups.new(name=name + ".z")
 			for i, v in enumerate(vdata):
 				xg.add([i], v[0], 'REPLACE')
 				yg.add([i], v[1], 'REPLACE')
@@ -852,9 +883,9 @@ def make_model(iqmodel, bone_axis, dir):
 	print("importing model", iqmodel.name)
 
 	for obj in bpy.context.scene.objects:
-		obj.select = False
+		select_ob(obj, state=False)
 
-	group = bpy.data.groups.new(iqmodel.name)
+	group = make_group(iqmodel.name)
 
 	amtobj = make_armature(iqmodel, bone_axis)
 	meshes = gather_meshes(iqmodel)
@@ -867,11 +898,13 @@ def make_model(iqmodel, bone_axis, dir):
 		rootobj.name = iqmodel.name
 
 	group.objects.link(rootobj)
+	select_ob(rootobj)
 
 	for name in meshes:
 		meshobj = make_mesh_data(iqmodel, name, meshes[name], amtobj, dir)
 		meshobj.parent = rootobj
 		group.objects.link(meshobj)
+		select_ob(meshobj)
 
 	if len(iqmodel.anims) > 0:
 		make_actions(iqmodel, amtobj, bone_axis)
@@ -916,12 +949,20 @@ def menu_func(self, context):
 	self.layout.operator(ImportIQM.bl_idname, text="Inter-Quake Model (.iqm, .iqe)")
 
 def register():
-	bpy.utils.register_module(__name__)
-	bpy.types.INFO_MT_file_import.append(menu_func)
+    if bpy.app.version >= (2, 80, 0):
+        bpy.utils.register_class(ImportIQM)
+        bpy.types.TOPBAR_MT_file_import.append(menu_func)
+    else:
+        bpy.utils.register_module(__name__)
+        bpy.types.INFO_MT_file_import.append(menu_func)
 
 def unregister():
-	bpy.utils.unregister_module(__name__)
-	bpy.types.INFO_MT_file_import.remove(menu_func)
+    if bpy.app.version >= (2, 80, 0):
+        bpy.types.TOPBAR_MT_file_import.remove(menu_func)
+        bpy.utils.unregister_class(ImportIQM)
+    else:
+        bpy.utils.unregister_module(__name__)
+        bpy.types.INFO_MT_file_import.remove(menu_func)
 
 def batch_zap():
 	if "Cube" in bpy.data.objects:
