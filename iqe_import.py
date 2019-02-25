@@ -18,10 +18,6 @@ from bpy_extras.io_utils import ImportHelper, unpack_list
 from bpy_extras.image_utils import load_image
 from mathutils import Matrix, Quaternion, Vector
 
-# see blenkernel/intern/armature.c for vec_roll_to_mat3
-# see blenkernel/intern/armature.c for mat3_to_vec_roll
-# see makesrna/intern/rna_armature.c for rna_EditBone_matrix_get
-
 # Compatiblity shims
 if bpy.app.version >= (2, 80, 0):
 	def matmul(x, y): return x.__matmul__(y)
@@ -33,30 +29,6 @@ else:
 	def make_group(name): return bpy.data.groups.new(name)
 	def link_object(ob): bpy.context.scene.objects.link(ob)
 	def select_ob(ob, state=True): ob.select = state
-
-def vec_roll_to_mat3(vec, roll):
-	target = Vector((0,1,0))
-	nor = vec.normalized()
-	axis = target.cross(nor)
-	if axis.dot(axis) > 0.000001:
-		axis.normalize()
-		theta = target.angle(nor)
-		bMatrix = Matrix.Rotation(theta, 3, axis)
-	else:
-		updown = 1 if target.dot(nor) > 0 else -1
-		bMatrix = Matrix.Scale(updown, 3)
-	rMatrix = Matrix.Rotation(roll, 3, nor)
-	mat = matmul(rMatrix, bMatrix)
-	return mat
-
-def mat3_to_vec_roll(mat):
-	vec = mat.col[1]
-	vecmat = vec_roll_to_mat3(mat.col[1], 0)
-	vecmatinv = vecmat.copy()
-	vecmatinv.invert()
-	rollmat = matmul(vecmatinv, mat)
-	roll = math.atan2(rollmat[0][2], rollmat[2][2])
-	return vec, roll
 
 #
 # Inter-Quake Model structs
@@ -489,13 +461,11 @@ def make_armature(iqmodel, bone_axis):
 			parent = amt.edit_bones[iqbone.parent]
 			bone.parent = parent
 
-		# TODO: bone scaling
-		pos = abs_bind_mat[n].to_translation()
-		axis, roll = mat3_to_vec_roll(abs_bind_mat[n].to_3x3())
-		axis *= 0.125 # short bones
-		bone.roll = roll
-		bone.head = pos
-		bone.tail = pos + axis
+		# XXX: Blender bones have no scaling in rest pose
+		bone_length = 0.125 # short bones
+		bone.head = abs_bind_mat[n].to_translation()
+		bone.tail = matmul(abs_bind_mat[n], Vector((0, bone_length, 0)))
+		bone.align_roll(matmul(abs_bind_mat[n].to_3x3(), Vector((0, 0, 1))))
 
 		# extend parent and connect if we are aligned
 		if parent:
