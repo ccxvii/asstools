@@ -497,18 +497,25 @@ def make_anim(iqmodel, anim, amtobj, bone_axis):
 	print("importing animation %s with %d frames" % (anim.name, len(anim.frames)))
 	action = bpy.data.actions.new(anim.name)
 	action.id_root = 'OBJECT'
-	action.use_fake_user = True
 	amtobj.animation_data.action = action
 	fps = bpy.context.scene.render.fps / anim.framerate
 	for n in range(len(anim.frames)):
 		make_pose(iqmodel, anim.frames[n], amtobj, bone_axis, fps * n)
+	amtobj.animation_data.action = None
 	return action
 
 def make_actions(iqmodel, amtobj, bone_axis):
 	bpy.context.scene.frame_start = 0
 	amtobj.animation_data_create()
+	nla_track = amtobj.animation_data.nla_tracks.new()
+	nla_track.name = iqmodel.name
+	t = 0
 	for anim in iqmodel.anims:
 		action = make_anim(iqmodel, anim, amtobj, bone_axis)
+		strip = nla_track.strips.new(anim.name, t, action)
+		if anim.loop:
+			strip.repeat = 2
+		t = strip.frame_end
 
 #
 # Create simple material by looking at the magic words.
