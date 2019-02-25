@@ -73,7 +73,7 @@ class IQPose:
 class IQAnimation:
 	def __init__(self, name):
 		self.name = name
-		self.framerate = 30
+		self.framerate = bpy.context.scene.render.fps
 		self.loop = False
 		self.frames = []
 
@@ -499,8 +499,9 @@ def make_anim(iqmodel, anim, amtobj, bone_axis):
 	action.id_root = 'OBJECT'
 	action.use_fake_user = True
 	amtobj.animation_data.action = action
+	fps = bpy.context.scene.render.fps / anim.framerate
 	for n in range(len(anim.frames)):
-		make_pose(iqmodel, anim.frames[n], amtobj, bone_axis, n)
+		make_pose(iqmodel, anim.frames[n], amtobj, bone_axis, fps * n)
 	return action
 
 def make_actions(iqmodel, amtobj, bone_axis):
