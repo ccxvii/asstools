@@ -652,7 +652,7 @@ def make_mesh_data(iqmodel, name, meshes, amtobj, dir):
 	link_object(obj)
 
 	# Set the mesh to single-sided to spot normal errors
-	mesh.show_double_sided = False
+	mesh.use_mirror_topology = False
 
 	has_vn = len(iqmodel.meshes[0].vn) > 0
 	has_vt = len(iqmodel.meshes[0].vt) > 0
